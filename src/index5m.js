@@ -1,4 +1,4 @@
-import { CONFIG } from "./config.js";
+import { CONFIG } from "./config5m.js";
 import { fetchKlines, fetchLastPrice } from "./data/binance.js";
 import { fetchChainlinkBtcUsd } from "./data/chainlink.js";
 import { startChainlinkPriceStream } from "./data/chainlinkWs.js";
@@ -12,15 +12,16 @@ import {
   fetchOrderBook,
   summarizeOrderBook
 } from "./data/polymarket.js";
+import { startBinanceOfiStream } from "./data/binanceWsOfi.js";
 import { computeSessionVwap, computeVwapSeries } from "./indicators/vwap.js";
-import { computeRsi, sma, slopeLast } from "./indicators/rsi.js";
-import { computeMacd } from "./indicators/macd.js";
+import { computeRsi, slopeLast } from "./indicators/rsi.js";
 import { computeHeikenAshi, countConsecutive } from "./indicators/heikenAshi.js";
-import { detectRegime } from "./engines/regime.js";
-import { scoreDirection, applyTimeAwareness } from "./engines/probability.js";
-import { computeEdge, decide } from "./engines/edge.js";
+import { computeEmaCross } from "./indicators/emaCross.js";
+import { scoreOrderFlow } from "./indicators/orderFlow.js";
+import { computeMomentum, scoreMomentum } from "./indicators/momentum.js";
+import { scoreDirection5m, applyTimeAwareness5m } from "./engines/probability5m.js";
+import { computeEdge, decide5m } from "./engines/edge5m.js";
 import { appendCsvRow, formatNumber, formatPct, getCandleWindowTiming, sleep } from "./utils.js";
-import { startBinanceTradeStream } from "./data/binanceWs.js";
 import fs from "node:fs";
 import path from "node:path";
 import { applyGlobalProxyFromEnv } from "./net/proxy.js";
@@ -29,20 +30,8 @@ import {
   kv, colorPriceLine, formatSignedDelta,
   colorByNarrative, formatNarrativeValue, narrativeFromSign,
   narrativeFromSlope, formatProbPct, fmtEtTime, getBtcSession, fmtTimeLeft,
-  safeFileSlug
+  safeFileSlug, priceToBeatFromPolymarketMarket
 } from "./display.js";
-
-function countVwapCrosses(closes, vwapSeries, lookback) {
-  if (closes.length < lookback || vwapSeries.length < lookback) return null;
-  let crosses = 0;
-  for (let i = closes.length - lookback + 1; i < closes.length; i += 1) {
-    const prev = closes[i - 1] - vwapSeries[i - 1];
-    const cur = closes[i] - vwapSeries[i];
-    if (prev === 0) continue;
-    if ((prev > 0 && cur < 0) || (prev < 0 && cur > 0)) crosses += 1;
-  }
-  return crosses;
-}
 
 applyGlobalProxyFromEnv();
 
@@ -53,7 +42,7 @@ const marketCache = {
   fetchedAtMs: 0
 };
 
-async function resolveCurrentBtc15mMarket() {
+async function resolveCurrentMarket() {
   if (CONFIG.polymarket.marketSlug) {
     return await fetchMarketBySlug(CONFIG.polymarket.marketSlug);
   }
@@ -75,7 +64,7 @@ async function resolveCurrentBtc15mMarket() {
 }
 
 async function fetchPolymarketSnapshot() {
-  const market = await resolveCurrentBtc15mMarket();
+  const market = await resolveCurrentMarket();
 
   if (!market) return { ok: false, reason: "market_not_found" };
 
@@ -106,14 +95,7 @@ async function fetchPolymarketSnapshot() {
   const gammaNo = downIndex >= 0 ? Number(outcomePrices[downIndex]) : null;
 
   if (!upTokenId || !downTokenId) {
-    return {
-      ok: false,
-      reason: "missing_token_ids",
-      market,
-      outcomes,
-      clobTokenIds,
-      outcomePrices
-    };
+    return { ok: false, reason: "missing_token_ids", market, outcomes, clobTokenIds, outcomePrices };
   }
 
   let upBuy = null;
@@ -167,8 +149,22 @@ async function fetchPolymarketSnapshot() {
   };
 }
 
+function ofiLabel(ofi) {
+  if (!ofi || ofi.total === 0) return "-";
+  const pct = (ofi.ofi * 100).toFixed(0);
+  const sign = ofi.ofi > 0 ? "+" : "";
+  return `${sign}${pct}%`;
+}
+
+function ofiNarrative(ofi) {
+  if (!ofi || ofi.total === 0) return "NEUTRAL";
+  if (ofi.ofi > 0.05) return "LONG";
+  if (ofi.ofi < -0.05) return "SHORT";
+  return "NEUTRAL";
+}
+
 async function main() {
-  const binanceStream = startBinanceTradeStream({ symbol: CONFIG.symbol });
+  const ofiStream = startBinanceOfiStream({ symbol: CONFIG.symbol });
   const polymarketLiveStream = startPolymarketChainlinkPriceStream({});
   const chainlinkStream = startChainlinkPriceStream({});
 
@@ -176,37 +172,26 @@ async function main() {
   let prevCurrentPrice = null;
   let priceToBeatState = { slug: null, value: null, setAtMs: null };
 
-  // Trade outcome tracking (per-market)
   let tradeState = { slug: null, side: null, entryMarketPrice: null, priceToBeat: null, lastChainlinkPrice: null, hasSignal: false };
   let runningStats = { wins: 0, losses: 0, totalPnl: 0 };
-  let recentOutcomes = []; // { slug, side, won, pnl, ts }[]
+  let recentOutcomes = [];
 
   const header = [
-    "timestamp",
-    "entry_minute",
-    "time_left_min",
-    "regime",
-    "signal",
-    "model_up",
-    "model_down",
-    "mkt_up",
-    "mkt_down",
-    "edge_up",
-    "edge_down",
-    "recommendation",
-    "outcome",
-    "pnl"
+    "timestamp", "entry_minute", "time_left_min", "ofi_30s", "ofi_1m", "ofi_2m",
+    "roc1", "roc3", "ema_cross", "rsi", "signal",
+    "model_up", "model_down", "mkt_up", "mkt_down",
+    "edge_up", "edge_down", "recommendation", "outcome", "pnl"
   ];
 
   while (true) {
     const timing = getCandleWindowTiming(CONFIG.candleWindowMinutes);
 
-    const wsTick = binanceStream.getLast();
+    const wsTick = ofiStream.getLast();
     const wsPrice = wsTick?.price ?? null;
+    const ofiData = ofiStream.getOfi();
 
     const polymarketWsTick = polymarketLiveStream.getLast();
     const polymarketWsPrice = polymarketWsTick?.price ?? null;
-
     const chainlinkWsTick = chainlinkStream.getLast();
     const chainlinkWsPrice = chainlinkWsTick?.price ?? null;
 
@@ -217,9 +202,8 @@ async function main() {
           ? Promise.resolve({ price: chainlinkWsPrice, updatedAt: chainlinkWsTick?.updatedAt ?? null, source: "chainlink_ws" })
           : fetchChainlinkBtcUsd();
 
-      const [klines1m, klines5m, lastPrice, chainlink, poly] = await Promise.all([
-        fetchKlines({ interval: "1m", limit: 240 }),
-        fetchKlines({ interval: "5m", limit: 200 }),
+      const [klines1m, lastPrice, chainlink, poly] = await Promise.all([
+        fetchKlines({ interval: "1m", limit: 60 }),
         fetchLastPrice(),
         chainlinkPromise,
         fetchPolymarketSnapshot()
@@ -227,80 +211,68 @@ async function main() {
 
       const settlementMs = poly.ok && poly.market?.endDate ? new Date(poly.market.endDate).getTime() : null;
       const settlementLeftMin = settlementMs ? (settlementMs - Date.now()) / 60_000 : null;
-
       const timeLeftMin = settlementLeftMin ?? timing.remainingMinutes;
 
-      const candles = klines1m;
-      const closes = candles.map((c) => c.close);
+      // Use only last N candles for short VWAP
+      const vwapCandles = klines1m.slice(-CONFIG.vwapCandleWindow);
+      const allCloses = klines1m.map(c => c.close);
+      const vwapCloses = vwapCandles.map(c => c.close);
 
-      const vwap = computeSessionVwap(candles);
-      const vwapSeries = computeVwapSeries(candles);
+      const vwap = computeSessionVwap(vwapCandles);
+      const vwapSeries = computeVwapSeries(vwapCandles);
       const vwapNow = vwapSeries[vwapSeries.length - 1];
 
       const lookback = CONFIG.vwapSlopeLookbackMinutes;
       const vwapSlope = vwapSeries.length >= lookback ? (vwapNow - vwapSeries[vwapSeries.length - lookback]) / lookback : null;
       const vwapDist = vwapNow ? (lastPrice - vwapNow) / vwapNow : null;
 
-      const rsiNow = computeRsi(closes, CONFIG.rsiPeriod);
+      // RSI with shorter period
+      const rsiNow = computeRsi(allCloses, CONFIG.rsiPeriod);
       const rsiSeries = [];
-      for (let i = 0; i < closes.length; i += 1) {
-        const sub = closes.slice(0, i + 1);
+      for (let i = 0; i < allCloses.length; i++) {
+        const sub = allCloses.slice(0, i + 1);
         const r = computeRsi(sub, CONFIG.rsiPeriod);
         if (r !== null) rsiSeries.push(r);
       }
-      const rsiMa = sma(rsiSeries, CONFIG.rsiMaPeriod);
       const rsiSlope = slopeLast(rsiSeries, 3);
 
-      const macd = computeMacd(closes, CONFIG.macdFast, CONFIG.macdSlow, CONFIG.macdSignal);
+      // EMA crossover
+      const emaCross = computeEmaCross(allCloses, CONFIG.emaCrossFast, CONFIG.emaCrossSlow);
 
-      const ha = computeHeikenAshi(candles);
+      // Heiken Ashi on recent candles
+      const ha = computeHeikenAshi(klines1m.slice(-10));
       const consec = countConsecutive(ha);
 
-      const vwapCrossCount = countVwapCrosses(closes, vwapSeries, 20);
-      const volumeRecent = candles.slice(-20).reduce((a, c) => a + c.volume, 0);
-      const volumeAvg = candles.slice(-120).reduce((a, c) => a + c.volume, 0) / 6;
+      // Momentum
+      const momentum = computeMomentum(klines1m);
+      const momentumScore = scoreMomentum(momentum);
 
-      const failedVwapReclaim = vwapNow !== null && vwapSeries.length >= 3
-        ? closes[closes.length - 1] < vwapNow && closes[closes.length - 2] > vwapSeries[vwapSeries.length - 2]
-        : false;
+      // Order flow
+      const orderFlowScore = scoreOrderFlow(ofiData);
 
-      const regimeInfo = detectRegime({
-        price: lastPrice,
-        vwap: vwapNow,
-        vwapSlope,
-        vwapCrossCount,
-        volumeRecent,
-        volumeAvg
-      });
-
-      const scored = scoreDirection({
-        price: lastPrice,
-        vwap: vwapNow,
-        vwapSlope,
+      // Score direction (5m model)
+      const scored = scoreDirection5m({
+        orderFlow: orderFlowScore,
+        momentumScore,
+        emaCross,
         rsi: rsiNow,
         rsiSlope,
-        macd,
         heikenColor: consec.color,
         heikenCount: consec.count,
-        failedVwapReclaim
+        price: lastPrice,
+        vwap: vwapNow,
+        vwapSlope
       });
 
-      const timeAware = applyTimeAwareness(scored.rawUp, timeLeftMin, CONFIG.candleWindowMinutes);
+      const timeAware = applyTimeAwareness5m(scored.rawUp, timeLeftMin, CONFIG.candleWindowMinutes);
 
       const marketUp = poly.ok ? poly.prices.up : null;
       const marketDown = poly.ok ? poly.prices.down : null;
       const edge = computeEdge({ modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, marketYes: marketUp, marketNo: marketDown });
 
-      const rec = decide({ remainingMinutes: timeLeftMin, edgeUp: edge.edgeUp, edgeDown: edge.edgeDown, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown });
+      const rec = decide5m({ remainingMinutes: timeLeftMin, edgeUp: edge.edgeUp, edgeDown: edge.edgeDown, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown });
 
-      const vwapSlopeLabel = vwapSlope === null ? "-" : vwapSlope > 0 ? "UP" : vwapSlope < 0 ? "DOWN" : "FLAT";
-
-      const macdLabel = macd === null
-        ? "-"
-        : macd.hist < 0
-          ? (macd.histDelta !== null && macd.histDelta < 0 ? "bearish (expanding)" : "bearish")
-          : (macd.histDelta !== null && macd.histDelta > 0 ? "bullish (expanding)" : "bullish");
-
+      // --- Display ---
       const lastCandle = klines1m.length ? klines1m[klines1m.length - 1] : null;
       const lastClose = lastCandle?.close ?? null;
       const close1mAgo = klines1m.length >= 2 ? klines1m[klines1m.length - 2]?.close ?? null : null;
@@ -308,53 +280,63 @@ async function main() {
       const delta1m = lastClose !== null && close1mAgo !== null ? lastClose - close1mAgo : null;
       const delta3m = lastClose !== null && close3mAgo !== null ? lastClose - close3mAgo : null;
 
-      const haNarrative = (consec.color ?? "").toLowerCase() === "green" ? "LONG" : (consec.color ?? "").toLowerCase() === "red" ? "SHORT" : "NEUTRAL";
-      const rsiNarrative = narrativeFromSlope(rsiSlope);
-      const macdNarrative = narrativeFromSign(macd?.hist ?? null);
-      const vwapNarrative = narrativeFromSign(vwapDist);
-
       const pLong = timeAware?.adjustedUp ?? null;
       const pShort = timeAware?.adjustedDown ?? null;
-      const predictNarrative = (pLong !== null && pShort !== null && Number.isFinite(pLong) && Number.isFinite(pShort))
-        ? (pLong > pShort ? "LONG" : pShort > pLong ? "SHORT" : "NEUTRAL")
-        : "NEUTRAL";
       const predictValue = `${ANSI.green}LONG${ANSI.reset} ${ANSI.green}${formatProbPct(pLong, 0)}${ANSI.reset} / ${ANSI.red}SHORT${ANSI.reset} ${ANSI.red}${formatProbPct(pShort, 0)}${ANSI.reset}`;
-      const predictLine = `Predict: ${predictValue}`;
 
-      const marketUpStr = `${marketUp ?? "-"}${marketUp === null || marketUp === undefined ? "" : "¢"}`;
-      const marketDownStr = `${marketDown ?? "-"}${marketDown === null || marketDown === undefined ? "" : "¢"}`;
-      const polyHeaderValue = `${ANSI.green}↑ UP${ANSI.reset} ${marketUpStr}  |  ${ANSI.red}↓ DOWN${ANSI.reset} ${marketDownStr}`;
+      const marketUpStr = `${marketUp ?? "-"}${marketUp == null ? "" : "\u00A2"}`;
+      const marketDownStr = `${marketDown ?? "-"}${marketDown == null ? "" : "\u00A2"}`;
+      const polyHeaderValue = `${ANSI.green}\u2191 UP${ANSI.reset} ${marketUpStr}  |  ${ANSI.red}\u2193 DOWN${ANSI.reset} ${marketDownStr}`;
 
-      const heikenValue = `${consec.color ?? "-"} x${consec.count}`;
-      const heikenLine = formatNarrativeValue("Heiken Ashi", heikenValue, haNarrative);
+      // OFI display
+      const ofi30Narrative = ofiNarrative(ofiData.ofi30s);
+      const ofi1Narrative = ofiNarrative(ofiData.ofi1m);
+      const ofi2Narrative = ofiNarrative(ofiData.ofi2m);
+      const ofiValue = `30s:${colorByNarrative(ofiLabel(ofiData.ofi30s), ofi30Narrative)} | 1m:${colorByNarrative(ofiLabel(ofiData.ofi1m), ofi1Narrative)} | 2m:${colorByNarrative(ofiLabel(ofiData.ofi2m), ofi2Narrative)}`;
 
-      const rsiArrow = rsiSlope !== null && rsiSlope < 0 ? "↓" : rsiSlope !== null && rsiSlope > 0 ? "↑" : "-";
+      // EMA cross display
+      const emaLabel = emaCross === null ? "-" : emaCross.crossover !== "NONE"
+        ? `${emaCross.crossover} (${emaCross.expanding ? "expanding" : "flat"})`
+        : emaCross.bullish
+          ? `bullish${emaCross.expanding ? " (expanding)" : ""}`
+          : `bearish${emaCross.expanding ? " (expanding)" : ""}`;
+      const emaNarrative = emaCross === null ? "NEUTRAL" : emaCross.bullish ? "LONG" : "SHORT";
+
+      // Momentum display
+      const momLabel = momentum === null ? "-" : (() => {
+        const r1 = momentum.roc1 !== null ? `${(momentum.roc1 * 100).toFixed(3)}%` : "-";
+        const r3 = momentum.roc3 !== null ? `${(momentum.roc3 * 100).toFixed(3)}%` : "-";
+        const acc = momentum.accel !== null ? (momentum.accel > 0 ? " \u2191accel" : momentum.accel < 0 ? " \u2193decel" : "") : "";
+        return `1m:${r1} | 3m:${r3}${acc}`;
+      })();
+      const momNarrative = momentum?.roc1 != null ? narrativeFromSign(momentum.roc1) : "NEUTRAL";
+
+      // RSI
+      const rsiArrow = rsiSlope !== null && rsiSlope < 0 ? "\u2193" : rsiSlope !== null && rsiSlope > 0 ? "\u2191" : "-";
       const rsiValue = `${formatNumber(rsiNow, 1)} ${rsiArrow}`;
-      const rsiLine = formatNarrativeValue("RSI", rsiValue, rsiNarrative);
+      const rsiNarrative = narrativeFromSlope(rsiSlope);
 
-      const macdLine = formatNarrativeValue("MACD", macdLabel, macdNarrative);
+      // HA
+      const heikenValue = `${consec.color ?? "-"} x${consec.count}`;
+      const haNarrative = (consec.color ?? "").toLowerCase() === "green" ? "LONG" : (consec.color ?? "").toLowerCase() === "red" ? "SHORT" : "NEUTRAL";
 
+      // VWAP
+      const vwapSlopeLabel = vwapSlope === null ? "-" : vwapSlope > 0 ? "UP" : vwapSlope < 0 ? "DOWN" : "FLAT";
+      const vwapValue = `${formatNumber(vwapNow, 0)} (${formatPct(vwapDist, 2)}) | slope: ${vwapSlopeLabel}`;
+      const vwapNarrative = narrativeFromSign(vwapDist);
+
+      // Delta
       const delta1Narrative = narrativeFromSign(delta1m);
       const delta3Narrative = narrativeFromSign(delta3m);
       const deltaValue = `${colorByNarrative(formatSignedDelta(delta1m, lastClose), delta1Narrative)} | ${colorByNarrative(formatSignedDelta(delta3m, lastClose), delta3Narrative)}`;
-      const deltaLine = `Delta 1/3Min: ${deltaValue}`;
-
-      const vwapValue = `${formatNumber(vwapNow, 0)} (${formatPct(vwapDist, 2)}) | slope: ${vwapSlopeLabel}`;
-      const vwapLine = formatNarrativeValue("VWAP", vwapValue, vwapNarrative);
 
       const signal = rec.action === "ENTER" ? (rec.side === "UP" ? "BUY UP" : "BUY DOWN") : "NO TRADE";
 
-      const actionLine = rec.action === "ENTER"
-        ? `${rec.action} NOW (${rec.phase} ENTRY)`
-        : `NO TRADE (${rec.phase})`;
-
-      const spreadUp = poly.ok ? poly.orderbook.up.spread : null;
-      const spreadDown = poly.ok ? poly.orderbook.down.spread : null;
-
-      const spread = spreadUp !== null && spreadDown !== null ? Math.max(spreadUp, spreadDown) : (spreadUp ?? spreadDown);
-      const liquidity = poly.ok
-        ? (Number(poly.market?.liquidityNum) || Number(poly.market?.liquidity) || null)
-        : null;
+      const recColor = rec.action === "ENTER" ? ANSI.green : ANSI.gray;
+      const recLabel = rec.action === "ENTER"
+        ? `\u25BA ${rec.side === "UP" ? "BUY UP" : "BUY DOWN"}  [${rec.phase} \u00B7 ${rec.strength}]`
+        : `NO TRADE  [${rec.phase}]`;
+      const recLine = `${recColor}${recLabel}${ANSI.reset}`;
 
       const spotPrice = wsPrice ?? lastPrice;
       const currentPrice = chainlink?.price ?? null;
@@ -364,7 +346,6 @@ async function main() {
       if (marketSlug && priceToBeatState.slug !== marketSlug) {
         priceToBeatState = { slug: marketSlug, value: null, setAtMs: null };
       }
-
       if (priceToBeatState.slug && priceToBeatState.value === null && currentPrice !== null) {
         const nowMs = Date.now();
         const okToLatch = marketStartMs === null ? true : nowMs >= marketStartMs;
@@ -372,11 +353,9 @@ async function main() {
           priceToBeatState = { slug: priceToBeatState.slug, value: Number(currentPrice), setAtMs: nowMs };
         }
       }
-
       const priceToBeat = priceToBeatState.slug === marketSlug ? priceToBeatState.value : null;
 
-      // --- Trade outcome tracking ---
-      // Detect market settlement: slug changed from a known previous market
+      // Trade outcome tracking
       if (tradeState.slug !== null && tradeState.slug !== "" && marketSlug !== tradeState.slug) {
         if (tradeState.hasSignal && tradeState.priceToBeat !== null && tradeState.lastChainlinkPrice !== null) {
           const winner = tradeState.lastChainlinkPrice > tradeState.priceToBeat ? "UP" : "DOWN";
@@ -388,50 +367,32 @@ async function main() {
           runningStats.totalPnl += pnl;
           recentOutcomes.unshift({ slug: tradeState.slug, side: tradeState.side, won, pnl, ts: new Date().toISOString() });
           if (recentOutcomes.length > 10) recentOutcomes.pop();
-          // Write settlement row to CSV
-          appendCsvRow("./logs/signals.csv", header, [
-            new Date().toISOString(), "SETTLED", "0", tradeState.slug,
-            `${tradeState.side}:${won ? "WIN" : "LOSS"}`, "", "", "", "", "", "",
+          appendCsvRow("./logs/signals_5m.csv", header, [
+            new Date().toISOString(), "SETTLED", "0", "", "", "", "", "", "", "", "",
+            `${tradeState.side}:${won ? "WIN" : "LOSS"}`, "", "", "", "", "",
             `${won ? "WIN" : "LOSS"}:${tradeState.side}`,
             won ? "WIN" : "LOSS",
             pnl.toFixed(4)
           ]);
         }
-        // Reset for new market
         tradeState = { slug: marketSlug, side: null, entryMarketPrice: null, priceToBeat: null, lastChainlinkPrice: currentPrice, hasSignal: false };
       } else if (tradeState.slug === null || tradeState.slug === "") {
         tradeState.slug = marketSlug;
       }
 
-      // Record first ENTER signal for this market
       if (!tradeState.hasSignal && rec.action === "ENTER" && marketSlug) {
         tradeState.side = rec.side;
         tradeState.entryMarketPrice = rec.side === "UP" ? marketUp : marketDown;
         tradeState.hasSignal = true;
       }
-
-      // Always keep last known price and price-to-beat updated
       if (currentPrice !== null) tradeState.lastChainlinkPrice = currentPrice;
       if (priceToBeat !== null) tradeState.priceToBeat = priceToBeat;
 
-      const currentPriceBaseLine = colorPriceLine({
-        label: "CURRENT PRICE",
-        price: currentPrice,
-        prevPrice: prevCurrentPrice,
-        decimals: 2,
-        prefix: "$"
-      });
-
+      // Price to beat display
+      const currentPriceBaseLine = colorPriceLine({ label: "CURRENT PRICE", price: currentPrice, prevPrice: prevCurrentPrice, decimals: 2, prefix: "$" });
       const ptbDelta = (currentPrice !== null && priceToBeat !== null && Number.isFinite(currentPrice) && Number.isFinite(priceToBeat))
-        ? currentPrice - priceToBeat
-        : null;
-      const ptbDeltaColor = ptbDelta === null
-        ? ANSI.gray
-        : ptbDelta > 0
-          ? ANSI.green
-          : ptbDelta < 0
-            ? ANSI.red
-            : ANSI.gray;
+        ? currentPrice - priceToBeat : null;
+      const ptbDeltaColor = ptbDelta === null ? ANSI.gray : ptbDelta > 0 ? ANSI.green : ptbDelta < 0 ? ANSI.red : ANSI.gray;
       const ptbDeltaText = ptbDelta === null
         ? `${ANSI.gray}-${ANSI.reset}`
         : `${ptbDeltaColor}${ptbDelta > 0 ? "+" : ptbDelta < 0 ? "-" : ""}$${Math.abs(ptbDelta).toFixed(2)}${ANSI.reset}`;
@@ -445,9 +406,7 @@ async function main() {
           try {
             fs.mkdirSync("./logs", { recursive: true });
             fs.writeFileSync(path.join("./logs", `polymarket_market_${slug}.json`), JSON.stringify(poly.market, null, 2), "utf8");
-          } catch {
-            // ignore
-          }
+          } catch { /* ignore */ }
         }
       }
 
@@ -460,52 +419,36 @@ async function main() {
           return ` (${sign}$${Math.abs(diffUsd).toFixed(2)}, ${sign}${Math.abs(diffPct).toFixed(2)}%)`;
         })()
         : "";
-      const binanceSpotLine = `${binanceSpotBaseLine}${diffLine}`;
-      const binanceSpotValue = binanceSpotLine.split(": ")[1] ?? binanceSpotLine;
+      const binanceSpotValue = (binanceSpotBaseLine + diffLine).split(": ")[1] ?? (binanceSpotBaseLine + diffLine);
       const binanceSpotKvLine = kv("BTC (Binance):", binanceSpotValue);
 
       const titleLine = poly.ok ? `${poly.market?.question ?? "-"}` : "-";
       const marketLine = kv("Market:", poly.ok ? (poly.market?.slug ?? "-") : "-");
 
-      const timeColor = timeLeftMin >= 10 && timeLeftMin <= 15
-        ? ANSI.green
-        : timeLeftMin >= 5 && timeLeftMin < 10
-          ? ANSI.yellow
-          : timeLeftMin >= 0 && timeLeftMin < 5
-            ? ANSI.red
-            : ANSI.reset;
-      const timeLeftLine = `⏱ Time left: ${timeColor}${fmtTimeLeft(timeLeftMin)}${ANSI.reset}`;
+      const timeColor = timeLeftMin >= 3 ? ANSI.green : timeLeftMin >= 1.5 ? ANSI.yellow : ANSI.red;
 
       const polyTimeLeftColor = settlementLeftMin !== null
-        ? (settlementLeftMin >= 10 && settlementLeftMin <= 15
-          ? ANSI.green
-          : settlementLeftMin >= 5 && settlementLeftMin < 10
-            ? ANSI.yellow
-            : settlementLeftMin >= 0 && settlementLeftMin < 5
-              ? ANSI.red
-              : ANSI.reset)
+        ? (settlementLeftMin >= 3 ? ANSI.green : settlementLeftMin >= 1.5 ? ANSI.yellow : ANSI.red)
         : ANSI.reset;
 
-      const recColor = rec.action === "ENTER" ? ANSI.green : ANSI.gray;
-      const recLabel = rec.action === "ENTER"
-        ? `► ${rec.side === "UP" ? "BUY UP" : "BUY DOWN"}  [${rec.phase} · ${rec.strength}]`
-        : `NO TRADE  [${rec.phase}]`;
-      const recLine = `${recColor}${recLabel}${ANSI.reset}`;
+      const liquidity = poly.ok ? (Number(poly.market?.liquidityNum) || Number(poly.market?.liquidity) || null) : null;
 
       const lines = [
-        titleLine,
+        `${ANSI.yellow}[5m MODE]${ANSI.reset} ${titleLine}`,
         marketLine,
         kv("Time left:", `${timeColor}${fmtTimeLeft(timeLeftMin)}${ANSI.reset}`),
         "",
         sepLine(),
         "",
-        kv("TA Predict:", predictValue),
-        kv("Heiken Ashi:", heikenLine.split(": ")[1] ?? heikenLine),
-        kv("RSI:", rsiLine.split(": ")[1] ?? rsiLine),
-        kv("MACD:", macdLine.split(": ")[1] ?? macdLine),
-        kv("Delta 1/3:", deltaLine.split(": ")[1] ?? deltaLine),
-        kv("VWAP:", vwapLine.split(": ")[1] ?? vwapLine),
+        kv("ORDER FLOW:", ofiValue),
+        kv("Momentum:", formatNarrativeValue("", momLabel, momNarrative).slice(2)),
+        kv("EMA Cross:", formatNarrativeValue("", emaLabel, emaNarrative).slice(2)),
+        kv("RSI:", formatNarrativeValue("", rsiValue, rsiNarrative).slice(2)),
+        kv("Heiken Ashi:", formatNarrativeValue("", heikenValue, haNarrative).slice(2)),
+        kv("VWAP:", formatNarrativeValue("", vwapValue, vwapNarrative).slice(2)),
+        kv("Delta 1/3:", deltaValue),
         "",
+        kv("TA Predict:", predictValue),
         kv("Recommendation:", recLine),
         "",
         sepLine(),
@@ -531,8 +474,7 @@ async function main() {
           const winRateStr = total > 0 ? `${((runningStats.wins / total) * 100).toFixed(0)}%` : "-";
           const pnlColor = runningStats.totalPnl > 0 ? ANSI.green : runningStats.totalPnl < 0 ? ANSI.red : ANSI.gray;
           const pnlSign = runningStats.totalPnl > 0 ? "+" : "";
-          const statsLine = `${ANSI.white}TRADE HISTORY${ANSI.reset}  W:${ANSI.green}${runningStats.wins}${ANSI.reset} L:${ANSI.red}${runningStats.losses}${ANSI.reset}  Win Rate:${ANSI.white}${winRateStr}${ANSI.reset}  P&L:${pnlColor}${pnlSign}${runningStats.totalPnl.toFixed(2)} USDC${ANSI.reset}`;
-          return statsLine;
+          return `${ANSI.white}TRADE HISTORY${ANSI.reset}  W:${ANSI.green}${runningStats.wins}${ANSI.reset} L:${ANSI.red}${runningStats.losses}${ANSI.reset}  Win Rate:${ANSI.white}${winRateStr}${ANSI.reset}  P&L:${pnlColor}${pnlSign}${runningStats.totalPnl.toFixed(2)} USDC${ANSI.reset}`;
         })(),
         ...recentOutcomes.slice(0, 5).map((o, i) => {
           const color = o.won ? ANSI.green : ANSI.red;
@@ -543,18 +485,24 @@ async function main() {
         "",
         sepLine(),
         centerText(`${ANSI.dim}${ANSI.gray}created by @krajekis${ANSI.reset}`, screenWidth())
-      ].filter((x) => x !== null);
+      ].filter(x => x !== null);
 
       renderScreen(lines.join("\n") + "\n");
 
       prevSpotPrice = spotPrice ?? prevSpotPrice;
       prevCurrentPrice = currentPrice ?? prevCurrentPrice;
 
-      appendCsvRow("./logs/signals.csv", header, [
+      appendCsvRow("./logs/signals_5m.csv", header, [
         new Date().toISOString(),
         timing.elapsedMinutes.toFixed(3),
         timeLeftMin.toFixed(3),
-        regimeInfo.regime,
+        ofiData.ofi30s?.ofi?.toFixed(3) ?? "",
+        ofiData.ofi1m?.ofi?.toFixed(3) ?? "",
+        ofiData.ofi2m?.ofi?.toFixed(3) ?? "",
+        momentum?.roc1?.toFixed(6) ?? "",
+        momentum?.roc3?.toFixed(6) ?? "",
+        emaCross?.crossover ?? "",
+        rsiNow?.toFixed(1) ?? "",
         signal,
         timeAware.adjustedUp,
         timeAware.adjustedDown,
@@ -563,13 +511,13 @@ async function main() {
         edge.edgeUp,
         edge.edgeDown,
         rec.action === "ENTER" ? `${rec.side}:${rec.phase}:${rec.strength}` : "NO_TRADE",
-        "", // outcome — preenchido na row SETTLED
-        ""  // pnl    — preenchido na row SETTLED
+        "",
+        ""
       ]);
     } catch (err) {
-      console.log("────────────────────────────");
+      console.log("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
       console.log(`Error: ${err?.message ?? String(err)}`);
-      console.log("────────────────────────────");
+      console.log("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
     }
 
     await sleep(CONFIG.pollIntervalMs);
