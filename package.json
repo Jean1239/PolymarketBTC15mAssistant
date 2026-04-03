@@ -4,10 +4,11 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "start": "node src/index.js",
-    "start:5m": "node src/index5m.js"
+    "start": "node --env-file=.env src/index.js",
+    "start:5m": "node --env-file=.env src/index5m.js"
   },
   "dependencies": {
+    "@polymarket/clob-client": "^5.8.1",
     "ethers": "^6.11.1",
     "https-proxy-agent": "^7.0.6",
     "socks-proxy-agent": "^8.0.5",

@@ -17,12 +17,19 @@ export const CONFIG = {
 
   polymarket: {
     marketSlug: process.env.POLYMARKET_SLUG || "",
-    seriesId: process.env.POLYMARKET_SERIES_ID || "10192",
-    seriesSlug: process.env.POLYMARKET_SERIES_SLUG || "btc-up-or-down-15m",
+    seriesId: "10192",
+    seriesSlug: "btc-up-or-down-15m",
     autoSelectLatest: (process.env.POLYMARKET_AUTO_SELECT_LATEST || "true").toLowerCase() === "true",
     liveDataWsUrl: process.env.POLYMARKET_LIVE_WS_URL || "wss://ws-live-data.polymarket.com",
     upOutcomeLabel: process.env.POLYMARKET_UP_LABEL || "Up",
     downOutcomeLabel: process.env.POLYMARKET_DOWN_LABEL || "Down"
+  },
+
+  trading: {
+    privateKey: process.env.POLYMARKET_PRIVATE_KEY || "",
+    funder: process.env.POLYMARKET_FUNDER || "",
+    signatureType: Number(process.env.POLYMARKET_SIGNATURE_TYPE || "0"),
+    tradeAmount: Number(process.env.POLYMARKET_TRADE_AMOUNT || "5"),
   },
 
   chainlink: {

@@ -57,6 +57,16 @@ Pure functions operating on arrays of OHLCV candles (Binance 1m klines):
 
 All tunable parameters (poll interval, TA periods, Polymarket series IDs, RPC URLs) live here and are read from environment variables with defaults. `config5m.js` extends the base config with 5m-tuned values (RSI period 5, VWAP window 10 candles, EMA 3/8).
 
+### Trading (`src/trading/`)
+
+Optional live-trading integration using `@polymarket/clob-client` SDK. Enabled when `POLYMARKET_PRIVATE_KEY` is set; otherwise the app runs in read-only mode.
+
+- **client.js** — Initializes `ClobClient` with L1 (EIP-712) + L2 (HMAC) auth. Derives API credentials on first run via `createOrDeriveApiKey()`. Caches the client singleton.
+- **orders.js** — `buyMarketOrder()` and `sellMarketOrder()` wrappers around `client.createAndPostMarketOrder()`. Returns `{ ok, order }` or `{ ok: false, error }`.
+- **position.js** — In-memory position state: `recordBuy()`, `recordSell()`, `getPosition()`, `computeROI()`, `resetIfMarketChanged()`. Also `fetchPositionBalance()` to sync shares from chain via `getBalanceAllowance()`.
+
+Both main loops listen for keypresses when trading is enabled: **[B]** buy the recommended side, **[S]** sell 100% of position, **[Q]** quit. Actions are queued and processed inside the main loop where market data is available.
+
 ### Proxy (`src/net/proxy.js`)
 
 Called once at startup via `applyGlobalProxyFromEnv()`. Reads `HTTPS_PROXY`/`HTTP_PROXY`/`ALL_PROXY` and patches Node's global `fetch` dispatcher (via `undici`) and WebSocket connections to route through HTTP or SOCKS5 proxies.
@@ -73,6 +83,10 @@ Called once at startup via `applyGlobalProxyFromEnv()`. Reads `HTTPS_PROXY`/`HTT
 | `POLYMARKET_5M_SERIES_ID` | (falls back to 15m series) | Series ID for 5m markets |
 | `POLYMARKET_5M_SERIES_SLUG` | `btc-up-or-down-5m` | Series slug for 5m markets |
 | `HTTPS_PROXY` / `ALL_PROXY` | — | Proxy for all outbound connections |
+| `POLYMARKET_PRIVATE_KEY` | — | Polygon wallet private key (enables trading) |
+| `POLYMARKET_FUNDER` | (derived from key) | Polymarket profile address (for proxy wallets) |
+| `POLYMARKET_SIGNATURE_TYPE` | `0` | `0`=EOA, `1`=POLY_PROXY, `2`=GNOSIS_SAFE |
+| `POLYMARKET_TRADE_AMOUNT` | `5` | USDC amount per trade |
 
 ## Output
 

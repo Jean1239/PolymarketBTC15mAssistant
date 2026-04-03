@@ -264,3 +264,60 @@ export function priceToBeatFromPolymarketMarket(market) {
   if (n !== null) return n;
   return parsePriceToBeat(market);
 }
+
+// --- Trading display helpers ---
+
+let _statusMsg = { text: "", expiresAt: 0 };
+
+export function setStatusMessage(text, durationMs = 3000) {
+  _statusMsg = { text, expiresAt: Date.now() + durationMs };
+}
+
+export function getStatusLine() {
+  if (_statusMsg.expiresAt > Date.now() && _statusMsg.text) {
+    return `${ANSI.yellow}${_statusMsg.text}${ANSI.reset}`;
+  }
+  return null;
+}
+
+export function formatPositionLines({ position, currentMarketPrice, tradingEnabled }) {
+  if (!tradingEnabled) return [];
+
+  const lines = [];
+  lines.push(sepLine());
+  lines.push("");
+
+  const statusLine = getStatusLine();
+  if (statusLine) {
+    lines.push(statusLine);
+    lines.push("");
+  }
+
+  if (!position.active) {
+    lines.push(kv("POSITION:", `${ANSI.gray}Nenhuma posição aberta${ANSI.reset}`));
+  } else {
+    const sideColor = position.side === "UP" ? ANSI.green : ANSI.red;
+    const sideLabel = position.side === "UP" ? "↑ UP" : "↓ DOWN";
+    const sharesStr = position.shares.toFixed(2);
+    const entryStr = (position.entryPrice * 100).toFixed(1) + "¢";
+
+    const roi = currentMarketPrice != null
+      ? (() => {
+        const currentValue = position.shares * currentMarketPrice;
+        const pnlUsdc = currentValue - position.invested;
+        const roiPct = (pnlUsdc / position.invested) * 100;
+        const roiColor = pnlUsdc >= 0 ? ANSI.green : ANSI.red;
+        const sign = pnlUsdc >= 0 ? "+" : "";
+        return `${roiColor}${sign}${roiPct.toFixed(1)}%${ANSI.reset} | P&L: ${roiColor}${sign}$${pnlUsdc.toFixed(2)}${ANSI.reset} | Val: $${currentValue.toFixed(2)}`;
+      })()
+      : `${ANSI.gray}-${ANSI.reset}`;
+
+    lines.push(kv("POSITION:", `${sideColor}${sideLabel}${ANSI.reset} @ ${entryStr}  |  ${sharesStr} shares  |  $${position.invested.toFixed(2)}`));
+    lines.push(kv("ROI:", roi));
+  }
+
+  lines.push("");
+  lines.push(`  ${ANSI.white}[B]${ANSI.reset} Comprar  ${ANSI.white}[S]${ANSI.reset} Vender  ${ANSI.white}[Q]${ANSI.reset} Sair`);
+
+  return lines;
+}

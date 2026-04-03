@@ -30,8 +30,12 @@ import {
   kv, colorPriceLine, formatSignedDelta,
   colorByNarrative, formatNarrativeValue, narrativeFromSign,
   narrativeFromSlope, formatProbPct, fmtEtTime, fmtEtHHMM, getBtcSession, fmtTimeLeft,
-  safeFileSlug, priceToBeatFromPolymarketMarket
+  safeFileSlug, priceToBeatFromPolymarketMarket,
+  setStatusMessage, formatPositionLines
 } from "./display.js";
+import { initTradingClient } from "./trading/client.js";
+import { buyMarketOrder, sellMarketOrder } from "./trading/orders.js";
+import { getPosition, recordBuy, recordSell, computeROI, resetIfMarketChanged, fetchPositionBalance } from "./trading/position.js";
 
 applyGlobalProxyFromEnv();
 
@@ -168,6 +172,27 @@ async function main() {
   const polymarketLiveStream = startPolymarketChainlinkPriceStream({});
   const chainlinkStream = startChainlinkPriceStream({});
 
+  // --- Trading setup ---
+  let trading = { client: null, tradingEnabled: false, tradeAmount: 0 };
+  try {
+    trading = await initTradingClient(CONFIG);
+  } catch { /* trading stays disabled */ }
+
+  const actionQueue = [];
+  let lastPoly = null;
+  let lastRec = null;
+
+  if (trading.tradingEnabled) {
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.on("data", (key) => {
+      const ch = key.toString().toLowerCase();
+      if (ch === "b") actionQueue.push({ type: "buy" });
+      else if (ch === "s") actionQueue.push({ type: "sell" });
+      else if (ch === "q" || key[0] === 0x03) process.exit(0);
+    });
+  }
+
   let prevSpotPrice = null;
   let prevCurrentPrice = null;
   let priceToBeatState = { slug: null, value: null, setAtMs: null };
@@ -271,6 +296,56 @@ async function main() {
       const edge = computeEdge({ modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, marketYes: marketUp, marketNo: marketDown });
 
       const rec = decide5m({ remainingMinutes: timeLeftMin, edgeUp: edge.edgeUp, edgeDown: edge.edgeDown, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown });
+
+      // --- Trading actions ---
+      lastPoly = poly;
+      lastRec = rec;
+      const marketSlugNow = poly.ok ? String(poly.market?.slug ?? "") : "";
+      resetIfMarketChanged(marketSlugNow);
+
+      while (actionQueue.length && trading.tradingEnabled && poly.ok) {
+        const action = actionQueue.shift();
+        if (action.type === "buy") {
+          const pos = getPosition();
+          if (pos.active) {
+            setStatusMessage("Já existe posição aberta");
+          } else {
+            const side = rec.action === "ENTER" ? rec.side : (timeAware.adjustedUp >= timeAware.adjustedDown ? "UP" : "DOWN");
+            const tokenId = side === "UP" ? poly.tokens.upTokenId : poly.tokens.downTokenId;
+            const mktPrice = side === "UP" ? marketUp : marketDown;
+            const priceNum = mktPrice != null ? mktPrice / 100 : 0.5;
+            setStatusMessage(`Comprando ${side}...`);
+            const result = await buyMarketOrder({ client: trading.client, tokenId, amount: trading.tradeAmount });
+            if (result.ok) {
+              const shares = trading.tradeAmount / priceNum;
+              recordBuy({ side, tokenId, shares, entryPrice: priceNum, invested: trading.tradeAmount, marketSlug: marketSlugNow, orderId: result.order?.orderID });
+              const balance = await fetchPositionBalance(trading.client, tokenId);
+              if (balance > 0) recordBuy({ side, tokenId, shares: balance, entryPrice: priceNum, invested: trading.tradeAmount, marketSlug: marketSlugNow, orderId: result.order?.orderID });
+              setStatusMessage(`COMPROU ${side} @ ${(priceNum * 100).toFixed(1)}¢ | $${trading.tradeAmount}`);
+            } else {
+              setStatusMessage(`Erro: ${result.error}`);
+            }
+          }
+        } else if (action.type === "sell") {
+          const pos = getPosition();
+          if (!pos.active) {
+            setStatusMessage("Nenhuma posição para vender");
+          } else {
+            setStatusMessage(`Vendendo ${pos.side}...`);
+            const result = await sellMarketOrder({ client: trading.client, tokenId: pos.tokenId, amount: pos.shares });
+            if (result.ok) {
+              const mktPrice = pos.side === "UP" ? marketUp : marketDown;
+              const priceNum = mktPrice != null ? mktPrice / 100 : 0.5;
+              const pnl = (pos.shares * priceNum) - pos.invested;
+              const sign = pnl >= 0 ? "+" : "";
+              setStatusMessage(`VENDEU ${pos.side} | P&L: ${sign}$${pnl.toFixed(2)}`);
+              recordSell();
+            } else {
+              setStatusMessage(`Erro: ${result.error}`);
+            }
+          }
+        }
+      }
 
       // --- Display ---
       const lastCandle = klines1m.length ? klines1m[klines1m.length - 1] : null;
@@ -494,6 +569,14 @@ async function main() {
           const pnlSign = o.pnl > 0 ? "+" : "";
           return `${ANSI.gray}  ${i + 1}.${ANSI.reset} ${color}${label}${ANSI.reset} ${ANSI.dim}${o.side}${ANSI.reset}  ${color}${pnlSign}${o.pnl.toFixed(2)} USDC${ANSI.reset}  ${ANSI.gray}${o.slug.slice(0, 40)}${ANSI.reset}`;
         }),
+        ...(() => {
+          const pos = getPosition();
+          const posPrice = pos.active
+            ? (pos.side === "UP" ? marketUp : marketDown)
+            : null;
+          const currentMktPrice = posPrice != null ? posPrice / 100 : null;
+          return formatPositionLines({ position: pos, currentMarketPrice: currentMktPrice, tradingEnabled: trading.tradingEnabled });
+        })(),
         "",
         sepLine(),
         centerText(`${ANSI.dim}${ANSI.gray}created by @krajekis${ANSI.reset}`, screenWidth())

@@ -20,8 +20,7 @@ export const CONFIG = {
 
   polymarket: {
     ...BASE.polymarket,
-    // 5m series — will need to be set via env vars
-    seriesId: process.env.POLYMARKET_5M_SERIES_ID || BASE.polymarket.seriesId,
-    seriesSlug: process.env.POLYMARKET_5M_SERIES_SLUG || "btc-up-or-down-5m"
+    seriesId: "10684",
+    seriesSlug: "btc-up-or-down-5m"
   }
 };
