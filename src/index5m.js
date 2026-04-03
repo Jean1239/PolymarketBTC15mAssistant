@@ -29,7 +29,7 @@ import {
   ANSI, screenWidth, sepLine, renderScreen, centerText,
   kv, colorPriceLine, formatSignedDelta,
   colorByNarrative, formatNarrativeValue, narrativeFromSign,
-  narrativeFromSlope, formatProbPct, fmtEtTime, getBtcSession, fmtTimeLeft,
+  narrativeFromSlope, formatProbPct, fmtEtTime, fmtEtHHMM, getBtcSession, fmtTimeLeft,
   safeFileSlug, priceToBeatFromPolymarketMarket
 } from "./display.js";
 
@@ -422,10 +422,19 @@ async function main() {
       const binanceSpotValue = (binanceSpotBaseLine + diffLine).split(": ")[1] ?? (binanceSpotBaseLine + diffLine);
       const binanceSpotKvLine = kv("BTC (Binance):", binanceSpotValue);
 
+      const isNextMarket = marketStartMs !== null && marketStartMs > Date.now();
+      const modeTag = isNextMarket ? `${ANSI.yellow}[5m MODE]${ANSI.reset} ${ANSI.yellow}[PRÓXIMO MERCADO]${ANSI.reset}` : `${ANSI.yellow}[5m MODE]${ANSI.reset}`;
       const titleLine = poly.ok ? `${poly.market?.question ?? "-"}` : "-";
       const marketLine = kv("Market:", poly.ok ? (poly.market?.slug ?? "-") : "-");
+      const intervalLabel = isNextMarket ? "Próx. intervalo:" : "Interval:";
+      const intervalLine = (marketStartMs !== null && settlementMs !== null)
+        ? kv(intervalLabel, `${isNextMarket ? ANSI.yellow : ""}${fmtEtHHMM(marketStartMs)} → ${fmtEtHHMM(settlementMs)} ET${isNextMarket ? ANSI.reset : ""}`)
+        : null;
 
-      const timeColor = timeLeftMin >= 3 ? ANSI.green : timeLeftMin >= 1.5 ? ANSI.yellow : ANSI.red;
+      const timeColor = isNextMarket
+        ? ANSI.yellow
+        : timeLeftMin >= 3 ? ANSI.green : timeLeftMin >= 1.5 ? ANSI.yellow : ANSI.red;
+      const startsInMin = isNextMarket && marketStartMs !== null ? (marketStartMs - Date.now()) / 60_000 : null;
 
       const polyTimeLeftColor = settlementLeftMin !== null
         ? (settlementLeftMin >= 3 ? ANSI.green : settlementLeftMin >= 1.5 ? ANSI.yellow : ANSI.red)
@@ -434,9 +443,12 @@ async function main() {
       const liquidity = poly.ok ? (Number(poly.market?.liquidityNum) || Number(poly.market?.liquidity) || null) : null;
 
       const lines = [
-        `${ANSI.yellow}[5m MODE]${ANSI.reset} ${titleLine}`,
+        `${modeTag} ${titleLine}`,
         marketLine,
-        kv("Time left:", `${timeColor}${fmtTimeLeft(timeLeftMin)}${ANSI.reset}`),
+        intervalLine,
+        isNextMarket && startsInMin !== null
+          ? kv("Inicia em:", `${ANSI.yellow}${fmtTimeLeft(startsInMin)}${ANSI.reset}`)
+          : kv("Time left:", `${timeColor}${fmtTimeLeft(timeLeftMin)}${ANSI.reset}`),
         "",
         sepLine(),
         "",

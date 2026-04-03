@@ -27,7 +27,7 @@ Price source priority: `polymarketLiveWs` → `chainlinkWs` → `chainlink` HTTP
 
 ### Shared display (`src/display.js`)
 
-All terminal rendering helpers (ANSI colors, `kv()`, `renderScreen()`, `colorPriceLine()`, etc.) shared by both 15m and 5m modes.
+All terminal rendering helpers (ANSI colors, `kv()`, `renderScreen()`, `colorPriceLine()`, `fmtEtTime()`, `fmtEtHHMM()`, etc.) shared by both 15m and 5m modes. `renderScreen()` enters the terminal alternate screen buffer on first call (so the title always appears at row 1) and truncates output to `process.stdout.rows - 1` lines to prevent scroll overflow. Restores the normal screen on exit/SIGINT/SIGTERM.
 
 ### Indicators (`src/indicators/`)
 
@@ -76,7 +76,7 @@ Called once at startup via `applyGlobalProxyFromEnv()`. Reads `HTTPS_PROXY`/`HTT
 
 ## Output
 
-- Terminal screen refreshed every second via `readline.cursorTo` + `clearScreenDown`.
+- Terminal screen refreshed every second via ANSI escape codes (`\x1b[H` + per-line `\x1b[K` + `\x1b[J`), rendered inside an alternate screen buffer.
 - `./logs/signals.csv` — one row per poll tick (15m mode) with regime, signal, model probabilities, market prices, edge, and recommendation.
 - `./logs/signals_5m.csv` — one row per poll tick (5m mode) with OFI, momentum, EMA cross, RSI, model probs, edge, and recommendation.
 - `./logs/polymarket_market_<slug>.json` — raw Polymarket market JSON dumped once per new market slug.

@@ -21,9 +21,26 @@ export function sepLine(ch = "\u2500") {
   return `${ANSI.white}${ch.repeat(w)}${ANSI.reset}`;
 }
 
+let _screenInitialized = false;
+
+function initAlternateScreen() {
+  process.stdout.write("\x1b[?1049h\x1b[H");
+  const restoreScreen = () => {
+    try { process.stdout.write("\x1b[?1049l"); } catch { /* ignore */ }
+  };
+  process.once("exit", restoreScreen);
+  process.once("SIGINT", () => { restoreScreen(); process.exit(0); });
+  process.once("SIGTERM", () => { restoreScreen(); process.exit(0); });
+}
+
 export function renderScreen(text) {
   try {
-    const lines = text.split("\n");
+    if (!_screenInitialized) {
+      initAlternateScreen();
+      _screenInitialized = true;
+    }
+    const maxRows = (process.stdout.rows ?? 24) - 1;
+    const lines = text.split("\n").slice(0, maxRows);
     const output = "\x1b[H" + lines.map(l => l + "\x1b[K").join("\n") + "\x1b[J";
     process.stdout.write(output);
   } catch {
@@ -141,6 +158,20 @@ export function fmtEtTime(now = new Date()) {
       second: "2-digit",
       hour12: false
     }).format(now);
+  } catch {
+    return "-";
+  }
+}
+
+export function fmtEtHHMM(dateOrMs) {
+  try {
+    const d = typeof dateOrMs === "number" ? new Date(dateOrMs) : dateOrMs;
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    }).format(d);
   } catch {
     return "-";
   }
