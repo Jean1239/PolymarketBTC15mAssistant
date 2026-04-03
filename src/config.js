@@ -30,6 +30,10 @@ export const CONFIG = {
     funder: process.env.POLYMARKET_FUNDER || "",
     signatureType: Number(process.env.POLYMARKET_SIGNATURE_TYPE || "0"),
     tradeAmount: Number(process.env.POLYMARKET_TRADE_AMOUNT || "5"),
+    // Exit thresholds
+    takeProfitPct: Number(process.env.TRADE_TAKE_PROFIT_PCT || "20"),   // vender ao atingir +20% ROI
+    stopLossPct: Number(process.env.TRADE_STOP_LOSS_PCT || "25"),        // vender ao atingir -25% ROI
+    signalFlipMinProb: Number(process.env.TRADE_SIGNAL_FLIP_PROB || "0.58"), // prob oposta que indica inversão
   },
 
   chainlink: {

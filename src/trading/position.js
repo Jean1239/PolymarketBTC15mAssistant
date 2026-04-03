@@ -62,6 +62,44 @@ export function resetIfMarketChanged(currentSlug) {
   return false;
 }
 
+// Avalia se a posição aberta deve ser encerrada.
+// Retorna { shouldSell, reason, urgency } onde urgency é "HIGH" | "MEDIUM" | null
+export function evaluateExit({ position, modelUp, modelDown, currentMarketPrice, timeLeftMin, takeProfitPct, stopLossPct, signalFlipMinProb }) {
+  if (!position.active || currentMarketPrice == null) {
+    return { shouldSell: false, reason: null, urgency: null };
+  }
+
+  const currentValue = position.shares * currentMarketPrice;
+  const pnlUsdc = currentValue - position.invested;
+  const roiPct = (pnlUsdc / position.invested) * 100;
+
+  // 1. Take profit
+  if (roiPct >= takeProfitPct) {
+    return { shouldSell: true, reason: "TAKE_PROFIT", urgency: "MEDIUM", roiPct };
+  }
+
+  // 2. Stop loss
+  if (roiPct <= -stopLossPct) {
+    return { shouldSell: true, reason: "STOP_LOSS", urgency: "HIGH", roiPct };
+  }
+
+  // 3. Sinal invertido — modelo agora favorece o lado oposto com confiança
+  if (modelUp != null && modelDown != null) {
+    const oppositeProb = position.side === "UP" ? modelDown : modelUp;
+    if (oppositeProb >= signalFlipMinProb) {
+      const urgency = oppositeProb >= 0.65 ? "HIGH" : "MEDIUM";
+      return { shouldSell: true, reason: "SIGNAL_FLIPPED", urgency, roiPct };
+    }
+  }
+
+  // 4. Pouco tempo + perdendo — reduz exposição
+  if (timeLeftMin != null && timeLeftMin < 1.5 && roiPct < -5) {
+    return { shouldSell: true, reason: "TIME_DECAY", urgency: "MEDIUM", roiPct };
+  }
+
+  return { shouldSell: false, reason: null, urgency: null, roiPct };
+}
+
 export async function fetchPositionBalance(client, tokenId) {
   try {
     const res = await client.getBalanceAllowance({

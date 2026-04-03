@@ -35,7 +35,7 @@ import {
 } from "./display.js";
 import { initTradingClient } from "./trading/client.js";
 import { buyMarketOrder, sellMarketOrder } from "./trading/orders.js";
-import { getPosition, recordBuy, recordSell, computeROI, resetIfMarketChanged, fetchPositionBalance } from "./trading/position.js";
+import { getPosition, recordBuy, recordSell, computeROI, resetIfMarketChanged, fetchPositionBalance, evaluateExit } from "./trading/position.js";
 
 applyGlobalProxyFromEnv();
 
@@ -575,7 +575,17 @@ async function main() {
             ? (pos.side === "UP" ? marketUp : marketDown)
             : null;
           const currentMktPrice = posPrice != null ? posPrice / 100 : null;
-          return formatPositionLines({ position: pos, currentMarketPrice: currentMktPrice, tradingEnabled: trading.tradingEnabled });
+          const exitEval = evaluateExit({
+            position: pos,
+            modelUp: timeAware.adjustedUp,
+            modelDown: timeAware.adjustedDown,
+            currentMarketPrice: currentMktPrice,
+            timeLeftMin,
+            takeProfitPct: CONFIG.trading.takeProfitPct,
+            stopLossPct: CONFIG.trading.stopLossPct,
+            signalFlipMinProb: CONFIG.trading.signalFlipMinProb,
+          });
+          return formatPositionLines({ position: pos, currentMarketPrice: currentMktPrice, tradingEnabled: trading.tradingEnabled, exitEval });
         })(),
         "",
         sepLine(),

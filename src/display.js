@@ -280,7 +280,14 @@ export function getStatusLine() {
   return null;
 }
 
-export function formatPositionLines({ position, currentMarketPrice, tradingEnabled }) {
+const EXIT_REASON_LABEL = {
+  TAKE_PROFIT:    "REALIZAR LUCRO",
+  STOP_LOSS:      "STOP LOSS",
+  SIGNAL_FLIPPED: "SINAL INVERTIDO",
+  TIME_DECAY:     "TEMPO CURTO",
+};
+
+export function formatPositionLines({ position, currentMarketPrice, tradingEnabled, exitEval }) {
   if (!tradingEnabled) return [];
 
   const lines = [];
@@ -314,6 +321,12 @@ export function formatPositionLines({ position, currentMarketPrice, tradingEnabl
 
     lines.push(kv("POSITION:", `${sideColor}${sideLabel}${ANSI.reset} @ ${entryStr}  |  ${sharesStr} shares  |  $${position.invested.toFixed(2)}`));
     lines.push(kv("ROI:", roi));
+
+    if (exitEval?.shouldSell) {
+      const urgencyColor = exitEval.urgency === "HIGH" ? ANSI.red : ANSI.yellow;
+      const label = EXIT_REASON_LABEL[exitEval.reason] ?? exitEval.reason;
+      lines.push(kv("SAÍDA:", `${urgencyColor}► VENDER — ${label}${ANSI.reset}`));
+    }
   }
 
   lines.push("");
