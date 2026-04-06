@@ -23,7 +23,6 @@ export async function buyMarketOrder({ client, tokenId, amount, price }) {
     const order = await client.createAndPostMarketOrder(userOrder, undefined, OrderType.FAK);
     logOrder("BUY_RES", order);
 
-    // FAK: aceita preenchimento total ou parcial; rejeita só se houver erro explícito
     if (order?.error || order?.errorMsg) {
       const reason = order.error || order.errorMsg;
       return { ok: false, error: reason, order };

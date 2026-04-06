@@ -295,7 +295,7 @@ export function buildScreen(d) {
   if (d.tradingEnabled) {
     if (d.usdcBalanceError) {
       tradingBadge += `  ${ANSI.red}Saldo: ${d.usdcBalanceError}${ANSI.reset}`;
-    } else if (d.usdcBalance !== null && d.usdcBalance !== undefined) {
+    } else if (d.usdcBalance != null) {
       tradingBadge += `  ${ANSI.dim}Saldo: ${ANSI.reset}${ANSI.white}$${Number(d.usdcBalance).toFixed(2)} USDC${ANSI.reset}`;
     }
   }

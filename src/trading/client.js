@@ -51,12 +51,10 @@ export async function initTradingClient(config) {
         { staticNetwork: ethers.Network.from(137) }
       );
       const code = await provider.getCode(funderAddr);
-      provider.destroy();
       if (code && code !== "0x" && code.length > 10) {
-        // É um contrato — verifica se é GnosisSafe
         const gsSafe = new ethers.Contract(funderAddr,
           ["function isOwner(address) view returns (bool)"],
-          new ethers.JsonRpcProvider("https://polygon-bor-rpc.publicnode.com", ethers.Network.from(137), { staticNetwork: ethers.Network.from(137) })
+          provider
         );
         try {
           const isOwner = await gsSafe.isOwner(_wallet.address);
@@ -65,9 +63,8 @@ export async function initTradingClient(config) {
             logTrading(`Auto-detectado: funder é GnosisSafe, usando POLY_GNOSIS_SAFE. Defina POLYMARKET_SIGNATURE_TYPE=2 para evitar esta detecção.`);
           }
         } catch { /* não é GnosisSafe */ }
-        const p2 = gsSafe.runner?.provider;
-        try { p2?.destroy?.(); } catch { /* ignore */ }
       }
+      provider.destroy();
     } catch { /* ignora erro de detecção */ }
   }
 

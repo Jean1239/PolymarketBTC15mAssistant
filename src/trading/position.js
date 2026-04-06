@@ -7,8 +7,16 @@ const ERC20_ABI = ["function balanceOf(address) view returns (uint256)"];
 const POLYGON_NETWORK = ethers.Network.from(137);
 
 let _cachedProvider = null;
+let _providerInitPromise = null;
 
 async function getPolygonProvider() {
+  if (_cachedProvider) return _cachedProvider;
+  if (_providerInitPromise) return _providerInitPromise;
+  _providerInitPromise = _initProvider().finally(() => { _providerInitPromise = null; });
+  return _providerInitPromise;
+}
+
+async function _initProvider() {
   if (_cachedProvider) return _cachedProvider;
 
   const rpcs = [
