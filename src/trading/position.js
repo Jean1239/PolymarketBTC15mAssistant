@@ -156,7 +156,8 @@ export async function fetchPositionBalance(client, tokenId) {
       asset_type: AssetType.CONDITIONAL,
       token_id: tokenId,
     });
-    return Number(res?.balance ?? 0);
+    // getBalanceAllowance returns raw token units (6 decimals); convert to shares
+    return Number(res?.balance ?? 0) / 1e6;
   } catch {
     return 0;
   }
