@@ -19,7 +19,7 @@ This is a single-process real-time console assistant for Polymarket BTC 15-minut
 ### Data layer (`src/data/`)
 
 - **binance.js / binanceWs.js** — Binance REST (klines, last price) and WebSocket trade stream for live spot price.
-- **polymarket.js** — Gamma API + CLOB API: fetches the active 15m market, outcome token IDs, CLOB prices, and order books.
+- **polymarket.js** — Gamma API + CLOB API. Reusable functions: `createMarketResolver(polyConfig, pollIntervalMs)` returns a cached async resolver; `fetchPolymarketSnapshot(resolveMarket, polyConfig)` returns `{ ok, market, tokens, prices, orderbook }` — the canonical way for any app to get live market state.
 - **polymarketLiveWs.js** — Polymarket live WebSocket (`wss://ws-live-data.polymarket.com`); primary source for the Chainlink BTC/USD price shown on Polymarket UI.
 - **chainlink.js / chainlinkWs.js** — Fallback: reads Chainlink BTC/USD aggregator on Polygon via HTTP RPC or WSS RPC using ethers v6.
 
@@ -50,8 +50,10 @@ Pure functions operating on arrays of OHLCV candles (Binance 1m klines):
 
 ### Main loops
 
-- **index.js** (15m) — Starts three WebSocket streams (Binance trades, Polymarket live, Chainlink), loops fetching klines + Polymarket snapshot, computes TA indicators, renders terminal screen, logs to `./logs/signals.csv`.
-- **index5m.js** (5m) — Same structure but uses `binanceWsOfi.js` (order flow stream), 5m-specific indicators/engines, shorter VWAP window, logs to `./logs/signals_5m.csv`.
+Thin orchestrators — each one initializes mode-specific streams, computes mode-specific indicators/signals, then delegates all shared concerns to the trading modules below.
+
+- **index.js** (15m) — Starts Binance trade stream + Polymarket live WS + Chainlink WS; indicator pipeline: VWAP, RSI, MACD, Heiken Ashi, regime; logs to `./logs/signals.csv`.
+- **index5m.js** (5m) — Starts Binance OFI stream + Polymarket live WS + Chainlink WS; indicator pipeline: short VWAP, RSI(5), EMA cross, momentum, order flow; logs to `./logs/signals_5m.csv`.
 
 ### Configuration (`src/config.js`, `src/config5m.js`)
 
@@ -61,9 +63,15 @@ All tunable parameters (poll interval, TA periods, Polymarket series IDs, RPC UR
 
 Optional live-trading integration using `@polymarket/clob-client` SDK. Enabled when `POLYMARKET_PRIVATE_KEY` is set; otherwise the app runs in read-only mode.
 
+All modules are reusable by future bots targeting other markets or strategies.
+
 - **client.js** — Initializes `ClobClient` with L1 (EIP-712) + L2 (HMAC) auth. Derives API credentials on first run via `createOrDeriveApiKey()`. Caches the client singleton. Auto-detects `POLY_GNOSIS_SAFE` when `POLYMARKET_SIGNATURE_TYPE=1` but the funder address is a GnosisSafe contract. Exposes `balanceAddress` (funder or EOA) for USDC balance queries.
 - **orders.js** — `buyMarketOrder()` and `sellMarketOrder()` wrappers around `client.createAndPostMarketOrder()` using `OrderType.FAK` (Fill and Kill — partial fills accepted). Buy price = `bestAsk + 0.02`; sell price = `bestBid - 0.02`, both clamped to valid range. Returns `{ ok, order }` or `{ ok: false, error }`.
 - **position.js** — In-memory position state: `recordBuy()`, `recordSell()`, `getPosition()`, `computeROI()`, `resetIfMarketChanged()`. `fetchPositionBalance()` syncs shares from chain via `getBalanceAllowance()` (used before selling to get actual on-chain balance). `fetchUsdcBalance(address)` reads USDC.e balance directly from Polygon blockchain (not the CLOB API, which only tracks deposited collateral). `evaluateExit()` recommends exits: TP and SL only trigger when the model also confirms reversal (`oppositeProb >= signalFlipMinProb`); TIME_DECAY only applies when entry price ≥ 0.50 (cheap entries are held to resolution).
+- **keyboard.js** — `setupKeyboard({ tradingEnabled })` sets up stdin raw mode and returns `{ actionQueue, getConfirmHint(ctx), stdinError }`. The action queue is drained each tick by the executor. `getConfirmHint` builds the [Y]/[N] confirmation line shown on the display.
+- **executor.js** — `processActionQueue(queue, ctx)` drains the keyboard action queue and executes buy/sell orders: selects side, picks bestAsk/bestBid with slippage, calls `buyMarketOrder`/`sellMarketOrder`, fetches on-chain balance, calls `recordBuy`/`recordSell`, logs errors to `./logs/trade_errors.log`. Calls optional `onSold` callback after a successful sell.
+- **priceLatch.js** — `createPriceLatch()` returns `{ update(ctx) }`. Manages the state machine that latches the Chainlink BTC/USD reference price at market open (used as the "price to beat" on the display). Reads from the market object first, then fetches historical Chainlink if the app started late (>30s after open), otherwise latches the live price.
+- **tracker.js** — `createTradeTracker()` returns `{ update(ctx), getStats(), getRecentOutcomes() }`. Tracks the first signal seen per market; when the market slug changes (settlement), computes win/loss and P&L based on the final Chainlink price vs the latched reference. Returns a `settled` object from `update()` so the caller writes it to the CSV in its own format.
 
 Both main loops listen for keypresses when trading is enabled: **[B]** buy the recommended side, **[S]** sell 100% of position, **[Q]** quit. Actions are queued and processed inside the main loop where market data is available.
 

@@ -1,5 +1,114 @@
 import { CONFIG } from "../config.js";
 
+// ---------------------------------------------------------------------------
+// Market resolver + snapshot (reusable across apps)
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns a stateful async function that resolves the current active market,
+ * caching the result for one poll interval to avoid hammering the API.
+ *
+ * @param {object} polyConfig  - CONFIG.polymarket (or equivalent)
+ * @param {number} pollIntervalMs
+ */
+export function createMarketResolver(polyConfig, pollIntervalMs) {
+  let cache = { market: null, fetchedAtMs: 0 };
+  return async function resolveMarket() {
+    if (polyConfig.marketSlug) return fetchMarketBySlug(polyConfig.marketSlug);
+    if (!polyConfig.autoSelectLatest) return null;
+    const now = Date.now();
+    if (cache.market && now - cache.fetchedAtMs < pollIntervalMs) return cache.market;
+    const events = await fetchLiveEventsBySeriesId({ seriesId: polyConfig.seriesId, limit: 25 });
+    const markets = flattenEventMarkets(events);
+    cache.market = pickLatestLiveMarket(markets);
+    cache.fetchedAtMs = now;
+    return cache.market;
+  };
+}
+
+/**
+ * Fetches a full market snapshot: resolved market, token IDs, CLOB prices,
+ * and orderbook summaries for both UP and DOWN outcomes.
+ *
+ * @param {Function} resolveMarket  - from createMarketResolver()
+ * @param {object}   polyConfig     - needs upOutcomeLabel / downOutcomeLabel
+ */
+export async function fetchPolymarketSnapshot(resolveMarket, polyConfig) {
+  const market = await resolveMarket();
+  if (!market) return { ok: false, reason: "market_not_found" };
+
+  const outcomes = Array.isArray(market.outcomes)
+    ? market.outcomes
+    : (typeof market.outcomes === "string" ? JSON.parse(market.outcomes) : []);
+  const outcomePrices = Array.isArray(market.outcomePrices)
+    ? market.outcomePrices
+    : (typeof market.outcomePrices === "string" ? JSON.parse(market.outcomePrices) : []);
+  const clobTokenIds = Array.isArray(market.clobTokenIds)
+    ? market.clobTokenIds
+    : (typeof market.clobTokenIds === "string" ? JSON.parse(market.clobTokenIds) : []);
+
+  const upLabel = (polyConfig.upOutcomeLabel ?? "Up").toLowerCase();
+  const downLabel = (polyConfig.downOutcomeLabel ?? "Down").toLowerCase();
+
+  let upTokenId = null;
+  let downTokenId = null;
+  for (let i = 0; i < outcomes.length; i += 1) {
+    const label = String(outcomes[i]).toLowerCase();
+    const tokenId = clobTokenIds[i] ? String(clobTokenIds[i]) : null;
+    if (!tokenId) continue;
+    if (label === upLabel) upTokenId = tokenId;
+    if (label === downLabel) downTokenId = tokenId;
+  }
+
+  const upIndex = outcomes.findIndex((x) => String(x).toLowerCase() === upLabel);
+  const downIndex = outcomes.findIndex((x) => String(x).toLowerCase() === downLabel);
+  const gammaYes = upIndex >= 0 ? Number(outcomePrices[upIndex]) : null;
+  const gammaNo  = downIndex >= 0 ? Number(outcomePrices[downIndex]) : null;
+
+  if (!upTokenId || !downTokenId) {
+    return { ok: false, reason: "missing_token_ids", market, outcomes, clobTokenIds, outcomePrices };
+  }
+
+  const emptyBook = { bestBid: null, bestAsk: null, spread: null, bidLiquidity: null, askLiquidity: null };
+  let upBuy = null, downBuy = null;
+  let upBookSummary = { ...emptyBook }, downBookSummary = { ...emptyBook };
+
+  try {
+    const [yesBuy, noBuy, upBook, downBook] = await Promise.all([
+      fetchClobPrice({ tokenId: upTokenId, side: "buy" }),
+      fetchClobPrice({ tokenId: downTokenId, side: "buy" }),
+      fetchOrderBook({ tokenId: upTokenId }),
+      fetchOrderBook({ tokenId: downTokenId }),
+    ]);
+    upBuy = yesBuy;
+    downBuy = noBuy;
+    upBookSummary = summarizeOrderBook(upBook);
+    downBookSummary = summarizeOrderBook(downBook);
+  } catch {
+    upBookSummary = {
+      bestBid: Number(market.bestBid) || null,
+      bestAsk: Number(market.bestAsk) || null,
+      spread: Number(market.spread) || null,
+      bidLiquidity: null, askLiquidity: null,
+    };
+    downBookSummary = {
+      bestBid: null, bestAsk: null,
+      spread: Number(market.spread) || null,
+      bidLiquidity: null, askLiquidity: null,
+    };
+  }
+
+  return {
+    ok: true,
+    market,
+    tokens: { upTokenId, downTokenId },
+    prices: { up: upBuy ?? gammaYes, down: downBuy ?? gammaNo },
+    orderbook: { up: upBookSummary, down: downBookSummary },
+  };
+}
+
+// ---------------------------------------------------------------------------
+
 function toNumber(x) {
   const n = Number(x);
   return Number.isFinite(n) ? n : null;
