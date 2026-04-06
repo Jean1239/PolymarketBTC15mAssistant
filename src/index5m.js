@@ -30,6 +30,7 @@ import { setupKeyboard } from "./trading/keyboard.js";
 import { processActionQueue } from "./trading/executor.js";
 import { createPriceLatch } from "./trading/priceLatch.js";
 import { createTradeTracker } from "./trading/tracker.js";
+import { createDryRunLogger5m } from "./dryRun.js";
 
 applyGlobalProxyFromEnv();
 
@@ -74,6 +75,8 @@ async function main() {
   const tracker       = createTradeTracker();
 
   const dumpedMarkets = new Set();
+  const dryRun = createDryRunLogger5m("./logs/dryrun_5m.csv");
+  process.on("exit", () => dryRun.flushNow());
 
   let prevSpotPrice    = null;
   let prevCurrentPrice = null;
@@ -336,6 +339,46 @@ async function main() {
         "", // outcome
         "", // pnl
       ]);
+
+      // ── Dry-run study log ─────────────────────────────────────────────────
+      {
+        const signalSide = rec.action === "ENTER" ? rec.side : null;
+        const entryPrice = signalSide === "UP" ? marketUp : signalSide === "DOWN" ? marketDown : null;
+        const vwapSlopeLbl = vwapSlope === null ? "" : vwapSlope > 0 ? "UP" : vwapSlope < 0 ? "DOWN" : "FLAT";
+        dryRun.tick({
+          slug: marketSlugNow,
+          priceToBeat,
+          btcPrice: currentPrice,
+          signalSide,
+          entryPrice,
+          dataValues: [
+            new Date().toISOString(),
+            marketSlugNow,
+            timeLeftMin !== null ? timeLeftMin.toFixed(3) : "",
+            currentPrice !== null ? currentPrice.toFixed(2) : "",
+            marketUp   !== null ? marketUp.toFixed(4)   : "",
+            marketDown !== null ? marketDown.toFixed(4)  : "",
+            signal,
+            timeAware.adjustedUp   !== null ? timeAware.adjustedUp.toFixed(4)   : "",
+            timeAware.adjustedDown !== null ? timeAware.adjustedDown.toFixed(4)  : "",
+            edge.edgeUp   !== null ? edge.edgeUp.toFixed(4)   : "",
+            edge.edgeDown !== null ? edge.edgeDown.toFixed(4)  : "",
+            rec.action === "ENTER" ? `${rec.side}:${rec.phase}:${rec.strength}` : "NO_TRADE",
+            ofiData.ofi30s?.ofi !== undefined ? ofiData.ofi30s.ofi.toFixed(3) : "",
+            ofiData.ofi1m?.ofi  !== undefined ? ofiData.ofi1m.ofi.toFixed(3)  : "",
+            ofiData.ofi2m?.ofi  !== undefined ? ofiData.ofi2m.ofi.toFixed(3)  : "",
+            momentum?.roc1 !== null && momentum?.roc1 !== undefined ? momentum.roc1.toFixed(6) : "",
+            momentum?.roc3 !== null && momentum?.roc3 !== undefined ? momentum.roc3.toFixed(6) : "",
+            emaCross?.crossover ?? "",
+            rsiNow !== null ? rsiNow.toFixed(1) : "",
+            consec.color ?? "",
+            consec.count,
+            vwapNow  !== null ? vwapNow.toFixed(0)          : "",
+            vwapDist !== null ? (vwapDist * 100).toFixed(4) : "",
+            vwapSlope !== null ? vwapSlope.toFixed(6)        : "",
+          ],
+        });
+      }
     } catch (err) {
       console.log("────────────────────────────");
       console.log(`Error: ${err?.message ?? String(err)}`);

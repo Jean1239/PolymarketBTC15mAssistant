@@ -104,4 +104,30 @@ Called once at startup via `applyGlobalProxyFromEnv()`. Reads `HTTPS_PROXY`/`HTT
 - Terminal screen refreshed every second via ANSI escape codes (`\x1b[H` + per-line `\x1b[K` + `\x1b[J`), rendered inside an alternate screen buffer.
 - `./logs/signals.csv` — one row per poll tick (15m mode) with regime, signal, model probabilities, market prices, edge, and recommendation.
 - `./logs/signals_5m.csv` — one row per poll tick (5m mode) with OFI, momentum, EMA cross, RSI, model probs, edge, and recommendation.
+- `./logs/dryrun_15m.csv` — dry-run study log for the 15m app (see below).
+- `./logs/dryrun_5m.csv` — dry-run study log for the 5m app (see below).
 - `./logs/polymarket_market_<slug>.json` — raw Polymarket market JSON dumped once per new market slug.
+
+### Dry-run study logger (`src/dryRun.js`)
+
+Enabled automatically in both apps — no extra flags needed. Each app creates one logger instance at startup:
+
+```
+createDryRunLogger15m("./logs/dryrun_15m.csv")  // used by index.js
+createDryRunLogger5m("./logs/dryrun_5m.csv")    // used by index5m.js
+```
+
+**How it works:** ticks accumulate in memory (one object per poll second) keyed to the current market slug. When the slug changes (market settled), the entire buffer is flushed to CSV in one `appendFileSync` call with four outcome columns filled in retroactively:
+
+| Column | Description |
+|---|---|
+| `outcome` | `UP` or `DOWN` — which side actually won (BTC above/below open price) |
+| `btc_at_settlement` | Final Chainlink BTC/USD price at the moment of flush |
+| `direction_correct` | `1` if signal matched outcome, `0` if not, empty if `NO TRADE` |
+| `signal_roi` | Hypothetical ROI if you had entered at that tick's market price. E.g. BUY UP at 0.65¢ → WIN: `+0.5385`; LOSS: `-1.0000`. Empty for `NO TRADE`. |
+
+`process.on("exit")` flushes any in-progress market buffer so data is not lost on Ctrl+C / Q.
+
+**15m columns:** `timestamp, market_slug, time_left_min, btc_price, market_up, market_down, regime, signal, model_up, model_down, edge_up, edge_down, rec_detail, rsi, rsi_slope, macd_hist, macd_label, ha_color, ha_count, vwap, vwap_dist_pct, vwap_slope, outcome, btc_at_settlement, direction_correct, signal_roi`
+
+**5m columns:** `timestamp, market_slug, time_left_min, btc_price, market_up, market_down, signal, model_up, model_down, edge_up, edge_down, rec_detail, ofi_30s, ofi_1m, ofi_2m, roc1, roc3, ema_cross, rsi, ha_color, ha_count, vwap, vwap_dist_pct, vwap_slope, outcome, btc_at_settlement, direction_correct, signal_roi`
