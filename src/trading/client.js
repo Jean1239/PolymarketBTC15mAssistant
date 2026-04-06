@@ -1,5 +1,5 @@
 import { ClobClient, SignatureType } from "@polymarket/clob-client";
-import { Wallet } from "ethers";
+import { Wallet, ethers } from "ethers";
 import fs from "node:fs";
 
 let _cached = null;
@@ -29,16 +29,47 @@ export async function initTradingClient(config) {
     _signTypedData: (domain, types, value) => _wallet.signTypedData(domain, types, value),
     getAddress: () => Promise.resolve(_wallet.address),
   });
-  const sigType = signatureType === 1
+  let sigType = signatureType === 1
     ? SignatureType.POLY_PROXY
     : signatureType === 2
       ? SignatureType.POLY_GNOSIS_SAFE
       : SignatureType.EOA;
+
   // For EOA, funder should be undefined (not the signer address) so the library
   // uses signer address as maker directly.
   const funderAddr = sigType === SignatureType.EOA
     ? undefined
     : (funder || undefined);
+
+  // Auto-detect: se funder é um contrato GnosisSafe mas o tipo está como POLY_PROXY,
+  // corrige para POLY_GNOSIS_SAFE automaticamente.
+  if (sigType === SignatureType.POLY_PROXY && funderAddr) {
+    try {
+      const provider = new ethers.JsonRpcProvider(
+        "https://polygon-bor-rpc.publicnode.com",
+        ethers.Network.from(137),
+        { staticNetwork: ethers.Network.from(137) }
+      );
+      const code = await provider.getCode(funderAddr);
+      provider.destroy();
+      if (code && code !== "0x" && code.length > 10) {
+        // É um contrato — verifica se é GnosisSafe
+        const gsSafe = new ethers.Contract(funderAddr,
+          ["function isOwner(address) view returns (bool)"],
+          new ethers.JsonRpcProvider("https://polygon-bor-rpc.publicnode.com", ethers.Network.from(137), { staticNetwork: ethers.Network.from(137) })
+        );
+        try {
+          const isOwner = await gsSafe.isOwner(_wallet.address);
+          if (isOwner) {
+            sigType = SignatureType.POLY_GNOSIS_SAFE;
+            logTrading(`Auto-detectado: funder é GnosisSafe, usando POLY_GNOSIS_SAFE. Defina POLYMARKET_SIGNATURE_TYPE=2 para evitar esta detecção.`);
+          }
+        } catch { /* não é GnosisSafe */ }
+        const p2 = gsSafe.runner?.provider;
+        try { p2?.destroy?.(); } catch { /* ignore */ }
+      }
+    } catch { /* ignora erro de detecção */ }
+  }
 
   const sigTypeName = sigType === SignatureType.POLY_PROXY ? "POLY_PROXY"
     : sigType === SignatureType.POLY_GNOSIS_SAFE ? "GNOSIS_SAFE" : "EOA";
@@ -65,7 +96,9 @@ export async function initTradingClient(config) {
     funderAddr
   );
 
-  _cached = { client, tradingEnabled: true, tradeAmount };
+  // balanceAddress: onde está o USDC — o funder (proxy) ou o EOA
+  const balanceAddress = funderAddr ?? _wallet.address;
+  _cached = { client, tradingEnabled: true, tradeAmount, balanceAddress };
   return _cached;
 }
 

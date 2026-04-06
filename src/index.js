@@ -33,7 +33,7 @@ import {
 } from "./display.js";
 import { initTradingClient } from "./trading/client.js";
 import { buyMarketOrder, sellMarketOrder } from "./trading/orders.js";
-import { getPosition, recordBuy, recordSell, resetIfMarketChanged, fetchPositionBalance, evaluateExit } from "./trading/position.js";
+import { getPosition, recordBuy, recordSell, resetIfMarketChanged, fetchPositionBalance, fetchUsdcBalance, evaluateExit } from "./trading/position.js";
 
 function countVwapCrosses(closes, vwapSeries, lookback) {
   if (closes.length < lookback || vwapSeries.length < lookback) return null;
@@ -212,6 +212,9 @@ async function main() {
 
   let prevSpotPrice = null;
   let prevCurrentPrice = null;
+  let usdcBalance = null;
+  let usdcBalanceError = null;
+  let usdcLastFetchMs = 0;
   let priceToBeatState = { slug: null, value: null, setAtMs: null };
   let priceToBeatFetching = false; // guard against concurrent historical fetches
 
@@ -348,17 +351,20 @@ async function main() {
           } else {
             const side = rec.action === "ENTER" ? rec.side : (timeAware.adjustedUp >= timeAware.adjustedDown ? "UP" : "DOWN");
             const tokenId = side === "UP" ? poly.tokens.upTokenId : poly.tokens.downTokenId;
-            const mktPrice = side === "UP" ? marketUp : marketDown;
-            const priceNum = mktPrice != null ? mktPrice : 0.5;
+            const book = side === "UP" ? poly.orderbook.up : poly.orderbook.down;
+            // Usa bestAsk + margem para garantir o match; cai no mid-price se não houver book
+            const rawAsk = book?.bestAsk ?? (side === "UP" ? marketUp : marketDown);
+            const priceNum = rawAsk != null ? Math.min(rawAsk + 0.02, 0.97) : 0.5;
+            const entryRef = rawAsk ?? priceNum;
             setStatusMessage(`Comprando ${side}...`);
             const result = await buyMarketOrder({ client: trading.client, tokenId, amount: trading.tradeAmount, price: priceNum });
             if (result.ok) {
               const balance = await fetchPositionBalance(trading.client, tokenId);
-              const shares = balance > 0 ? balance : trading.tradeAmount / priceNum;
-              recordBuy({ side, tokenId, shares, entryPrice: priceNum, invested: trading.tradeAmount, marketSlug: marketSlugNow, orderId: result.order?.orderID });
+              const shares = balance > 0 ? balance : trading.tradeAmount / entryRef;
+              recordBuy({ side, tokenId, shares, entryPrice: entryRef, invested: trading.tradeAmount, marketSlug: marketSlugNow, orderId: result.order?.orderID });
               const orderId = result.order?.orderID ?? result.order?.id ?? "-";
               const balanceStr = balance > 0 ? `shares: ${balance.toFixed(2)}` : "saldo 0 (ordem não preenchida?)";
-              setStatusMessage(`COMPROU ${side} @ ${(priceNum * 100).toFixed(1)}¢ | $${trading.tradeAmount} | ${balanceStr} | ID: ${String(orderId).slice(0, 12)}`, 8000);
+              setStatusMessage(`COMPROU ${side} @ ${(entryRef * 100).toFixed(1)}¢ | $${trading.tradeAmount} | ${balanceStr} | ID: ${String(orderId).slice(0, 12)}`, 8000);
             } else {
               const errMsg = `Erro na compra: ${result.error}`;
               setStatusMessage(errMsg, 15000);
@@ -372,13 +378,16 @@ async function main() {
             setStatusMessage("Nenhuma posição para vender");
           } else {
             setStatusMessage(`Vendendo ${pos.side}...`);
-            const sellMktPrice = pos.side === "UP" ? marketUp : marketDown;
-            const sellPriceNum = sellMktPrice != null ? sellMktPrice : 0.5;
-            const result = await sellMarketOrder({ client: trading.client, tokenId: pos.tokenId, amount: pos.shares, price: sellPriceNum });
+            const sellBook = pos.side === "UP" ? poly.orderbook.up : poly.orderbook.down;
+            const rawBid = sellBook?.bestBid ?? (pos.side === "UP" ? marketUp : marketDown);
+            const sellPriceNum = rawBid != null ? Math.max(rawBid - 0.02, 0.03) : 0.5;
+            // Usa saldo real on-chain para evitar erro de saldo insuficiente
+            const actualShares = await fetchPositionBalance(trading.client, pos.tokenId);
+            const sharesToSell = actualShares > 0 ? actualShares : pos.shares;
+            const result = await sellMarketOrder({ client: trading.client, tokenId: pos.tokenId, amount: sharesToSell, price: sellPriceNum });
             if (result.ok) {
-              const mktPrice = pos.side === "UP" ? marketUp : marketDown;
-              const priceNum = mktPrice != null ? mktPrice : 0.5;
-              const pnl = (pos.shares * priceNum) - pos.invested;
+              const priceNum = rawBid ?? sellPriceNum;
+              const pnl = (sharesToSell * priceNum) - pos.invested;
               const roi = (pnl / pos.invested) * 100;
               const sign = pnl >= 0 ? "+" : "";
               setStatusMessage(`VENDEU ${pos.side} | P&L: ${sign}$${pnl.toFixed(2)}`, 8000);
@@ -393,6 +402,17 @@ async function main() {
             }
           }
         }
+      }
+
+      // --- USDC balance fetch (every 30s) ---
+      if (trading.tradingEnabled && Date.now() - usdcLastFetchMs > 30_000) {
+        usdcLastFetchMs = Date.now();
+        fetchUsdcBalance(trading.balanceAddress).then((bal) => {
+          usdcBalance = bal;
+          usdcBalanceError = null;
+        }).catch((err) => {
+          usdcBalanceError = err?.message ? err.message.slice(0, 40) : "erro";
+        });
       }
 
       // --- Display data ---
@@ -540,6 +560,8 @@ async function main() {
         tradingEnabled: trading.tradingEnabled,
         initError: trading.initError,
         tradeAmount: trading.tradeAmount,
+        usdcBalance,
+        usdcBalanceError,
         confirmHint,
         shortcutsHint,
         binanceSpot: `${colorPriceLine({ label: "", price: spotPrice, prevPrice: prevSpotPrice, decimals: 0, prefix: "$" })}`,

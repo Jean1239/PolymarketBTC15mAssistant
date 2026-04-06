@@ -287,11 +287,18 @@ export function buildScreen(d) {
 
   // Trading status + shortcuts + clock on a single line
   const etStr = `${ANSI.dim}${fmtEtTime()} ${getBtcSession()}${ANSI.reset}`;
-  const tradingBadge = d.tradingEnabled
+  let tradingBadge = d.tradingEnabled
     ? `${ANSI.green}● ATIVO${ANSI.reset} $${d.tradeAmount}`
     : d.initError
       ? `${ANSI.red}● ERRO${ANSI.reset}`
       : `${ANSI.gray}● LEITURA${ANSI.reset}`;
+  if (d.tradingEnabled) {
+    if (d.usdcBalanceError) {
+      tradingBadge += `  ${ANSI.red}Saldo: ${d.usdcBalanceError}${ANSI.reset}`;
+    } else if (d.usdcBalance !== null && d.usdcBalance !== undefined) {
+      tradingBadge += `  ${ANSI.dim}Saldo: ${ANSI.reset}${ANSI.white}$${Number(d.usdcBalance).toFixed(2)} USDC${ANSI.reset}`;
+    }
+  }
   const confirmOrKeys = d.confirmHint ?? d.shortcutsHint ?? "";
   lines.push(`${tradingBadge}  ${confirmOrKeys}${" ".repeat(Math.max(0, W - visLen(tradingBadge) - visLen(confirmOrKeys) - visLen(etStr) - 4))}  ${etStr}`);
 

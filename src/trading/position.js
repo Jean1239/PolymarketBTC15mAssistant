@@ -1,4 +1,40 @@
 import { AssetType } from "@polymarket/clob-client";
+import { ethers } from "ethers";
+import { CONFIG } from "../config.js";
+
+const USDC_E = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"; // USDC.e Polygon
+const ERC20_ABI = ["function balanceOf(address) view returns (uint256)"];
+const POLYGON_NETWORK = ethers.Network.from(137);
+
+let _cachedProvider = null;
+
+async function getPolygonProvider() {
+  if (_cachedProvider) return _cachedProvider;
+
+  const rpcs = [
+    ...(CONFIG.chainlink.polygonRpcUrls ?? []),
+    CONFIG.chainlink.polygonRpcUrl,
+    "https://polygon-bor-rpc.publicnode.com",
+    "https://rpc.ankr.com/polygon",
+    "https://polygon.llamarpc.com",
+  ].map(s => String(s || "").trim()).filter(Boolean);
+
+  for (const rpc of rpcs) {
+    // staticNetwork=true evita auto-detecção (e os logs de retry) no ethers v6
+    const p = new ethers.JsonRpcProvider(rpc, POLYGON_NETWORK, { staticNetwork: POLYGON_NETWORK });
+    try {
+      await Promise.race([
+        p.getBlockNumber(),
+        new Promise((_, r) => setTimeout(() => r(new Error("timeout")), 3000)),
+      ]);
+      _cachedProvider = p;
+      return p;
+    } catch {
+      p.destroy();
+    }
+  }
+  throw new Error("Nenhum RPC Polygon disponível");
+}
 
 let position = {
   active: false,
@@ -73,27 +109,33 @@ export function evaluateExit({ position, modelUp, modelDown, currentMarketPrice,
   const pnlUsdc = currentValue - position.invested;
   const roiPct = (pnlUsdc / position.invested) * 100;
 
-  // 1. Take profit
-  if (roiPct >= takeProfitPct) {
-    return { shouldSell: true, reason: "TAKE_PROFIT", urgency: "MEDIUM", roiPct };
+  const oppositeProb = (modelUp != null && modelDown != null)
+    ? (position.side === "UP" ? modelDown : modelUp)
+    : null;
+  const modelConfirmsReversal = oppositeProb != null && oppositeProb >= signalFlipMinProb;
+
+  // 1. Take profit — só recomenda se o modelo também aponta reversão
+  if (roiPct >= takeProfitPct && modelConfirmsReversal) {
+    const urgency = oppositeProb >= 0.65 ? "HIGH" : "MEDIUM";
+    return { shouldSell: true, reason: "TAKE_PROFIT", urgency, roiPct };
   }
 
-  // 2. Stop loss
-  if (roiPct <= -stopLossPct) {
-    return { shouldSell: true, reason: "STOP_LOSS", urgency: "HIGH", roiPct };
+  // 2. Stop loss — só recomenda se o modelo também aponta reversão
+  if (roiPct <= -stopLossPct && modelConfirmsReversal) {
+    const urgency = oppositeProb >= 0.65 ? "HIGH" : "MEDIUM";
+    return { shouldSell: true, reason: "STOP_LOSS", urgency, roiPct };
   }
 
-  // 3. Sinal invertido — modelo agora favorece o lado oposto com confiança
-  if (modelUp != null && modelDown != null) {
-    const oppositeProb = position.side === "UP" ? modelDown : modelUp;
-    if (oppositeProb >= signalFlipMinProb) {
-      const urgency = oppositeProb >= 0.65 ? "HIGH" : "MEDIUM";
-      return { shouldSell: true, reason: "SIGNAL_FLIPPED", urgency, roiPct };
-    }
+  // 3. Sinal invertido com força suficiente, independente do ROI
+  if (modelConfirmsReversal) {
+    const urgency = oppositeProb >= 0.65 ? "HIGH" : "MEDIUM";
+    return { shouldSell: true, reason: "SIGNAL_FLIPPED", urgency, roiPct };
   }
 
-  // 4. Pouco tempo + perdendo — reduz exposição
-  if (timeLeftMin != null && timeLeftMin < 1.5 && roiPct < -5) {
+  // 4. Pouco tempo + perdendo — só aplica se a entrada foi cara (>= 50¢)
+  // Posições baratas já têm o risco precificado; vale segurar até a resolução
+  const entryWasCheap = position.entryPrice < 0.50;
+  if (timeLeftMin != null && timeLeftMin < 1.5 && roiPct < -5 && !entryWasCheap) {
     return { shouldSell: true, reason: "TIME_DECAY", urgency: "MEDIUM", roiPct };
   }
 
@@ -110,4 +152,11 @@ export async function fetchPositionBalance(client, tokenId) {
   } catch {
     return 0;
   }
+}
+
+export async function fetchUsdcBalance(funderAddress) {
+  const provider = await getPolygonProvider();
+  const usdc = new ethers.Contract(USDC_E, ERC20_ABI, provider);
+  const raw = await usdc.balanceOf(funderAddress);
+  return Number(raw) / 1e6; // USDC.e tem 6 decimais
 }

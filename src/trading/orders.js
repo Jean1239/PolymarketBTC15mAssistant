@@ -1,4 +1,4 @@
-import { Side } from "@polymarket/clob-client";
+import { Side, OrderType } from "@polymarket/clob-client";
 import fs from "node:fs";
 
 function logOrder(action, data) {
@@ -20,13 +20,12 @@ export async function buyMarketOrder({ client, tokenId, amount, price }) {
       userOrder.price = price;
     }
     logOrder("BUY_REQ", userOrder);
-    const order = await client.createAndPostMarketOrder(userOrder);
+    const order = await client.createAndPostMarketOrder(userOrder, undefined, OrderType.FAK);
     logOrder("BUY_RES", order);
 
-    // Check if the order was actually accepted/matched
-    const success = order && !order.error && !order.errorMsg && order.success !== false && order.status !== "DEAD";
-    if (!success) {
-      const reason = order?.error || order?.errorMsg || order?.status || "ordem não preenchida (FOK rejeitada)";
+    // FAK: aceita preenchimento total ou parcial; rejeita só se houver erro explícito
+    if (order?.error || order?.errorMsg) {
+      const reason = order.error || order.errorMsg;
       return { ok: false, error: reason, order };
     }
     return { ok: true, order };
@@ -47,12 +46,11 @@ export async function sellMarketOrder({ client, tokenId, amount, price }) {
       userOrder.price = price;
     }
     logOrder("SELL_REQ", userOrder);
-    const order = await client.createAndPostMarketOrder(userOrder);
+    const order = await client.createAndPostMarketOrder(userOrder, undefined, OrderType.FAK);
     logOrder("SELL_RES", order);
 
-    const success = order && !order.error && !order.errorMsg && order.success !== false && order.status !== "DEAD";
-    if (!success) {
-      const reason = order?.error || order?.errorMsg || order?.status || "ordem não preenchida (FOK rejeitada)";
+    if (order?.error || order?.errorMsg) {
+      const reason = order.error || order.errorMsg;
       return { ok: false, error: reason, order };
     }
     return { ok: true, order };
