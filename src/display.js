@@ -8,7 +8,8 @@ export const ANSI = {
   lightRed: "\x1b[91m",
   gray: "\x1b[90m",
   white: "\x1b[97m",
-  dim: "\x1b[2m"
+  dim: "\x1b[2m",
+  bold: "\x1b[1m"
 };
 
 export function screenWidth() {
@@ -18,7 +19,7 @@ export function screenWidth() {
 
 export function sepLine(ch = "\u2500") {
   const w = screenWidth();
-  return `${ANSI.white}${ch.repeat(w)}${ANSI.reset}`;
+  return `${ANSI.dim}${ch.repeat(w)}${ANSI.reset}`;
 }
 
 let _screenInitialized = false;
@@ -52,53 +53,65 @@ export function stripAnsi(s) {
   return String(s).replace(/\x1b\[[0-9;]*m/g, "");
 }
 
+function visLen(s) {
+  return stripAnsi(String(s)).length;
+}
+
+function padRight(s, width) {
+  const pad = width - visLen(s);
+  return pad > 0 ? s + " ".repeat(pad) : s;
+}
+
 export function padLabel(label, width) {
-  const visible = stripAnsi(label).length;
+  const visible = visLen(label);
   if (visible >= width) return label;
   return label + " ".repeat(width - visible);
 }
 
 export function centerText(text, width) {
-  const visible = stripAnsi(text).length;
+  const visible = visLen(text);
   if (visible >= width) return text;
   const left = Math.floor((width - visible) / 2);
-  const right = width - visible - left;
-  return " ".repeat(left) + text + " ".repeat(right);
+  return " ".repeat(left) + text;
 }
 
-export const LABEL_W = 16;
+export const LABEL_W = 14;
 
 export function kv(label, value) {
-  const l = padLabel(String(label), LABEL_W);
-  return `${l}${value}`;
+  return `${padLabel(String(label), LABEL_W)}${value}`;
 }
 
 export function section(title) {
-  return `${ANSI.white}${title}${ANSI.reset}`;
+  return `${ANSI.white}${ANSI.bold}${title}${ANSI.reset}`;
+}
+
+// Merge left and right column arrays into full-width lines
+function mergeColumns(left, right, totalWidth) {
+  const colW = Math.floor(totalWidth / 2) - 1;
+  const len = Math.max(left.length, right.length);
+  const out = [];
+  for (let i = 0; i < len; i++) {
+    const l = padRight(left[i] ?? "", colW);
+    const r = right[i] ?? "";
+    out.push(`${l} ${ANSI.dim}\u2502${ANSI.reset} ${r}`);
+  }
+  return out;
 }
 
 export function colorPriceLine({ label, price, prevPrice, decimals = 0, prefix = "" }) {
   if (price === null || price === undefined) {
     return `${label}: ${ANSI.gray}-${ANSI.reset}`;
   }
-
   const p = Number(price);
   const prev = prevPrice === null || prevPrice === undefined ? null : Number(prevPrice);
-
   let color = ANSI.reset;
   let arrow = "";
   if (prev !== null && Number.isFinite(prev) && Number.isFinite(p) && p !== prev) {
-    if (p > prev) {
-      color = ANSI.green;
-      arrow = " \u2191";
-    } else {
-      color = ANSI.red;
-      arrow = " \u2193";
-    }
+    if (p > prev) { color = ANSI.green; arrow = " \u2191"; }
+    else { color = ANSI.red; arrow = " \u2193"; }
   }
-
   const formatted = `${prefix}${formatNumberDisplay(p, decimals)}`;
-  return `${label}: ${color}${formatted}${arrow}${ANSI.reset}`;
+  return `${color}${formatted}${arrow}${ANSI.reset}`;
 }
 
 export function formatNumberDisplay(x, digits = 0) {
@@ -153,14 +166,9 @@ export function fmtEtTime(now = new Date()) {
   try {
     return new Intl.DateTimeFormat("en-US", {
       timeZone: "America/New_York",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
     }).format(now);
-  } catch {
-    return "-";
-  }
+  } catch { return "-"; }
 }
 
 export function fmtEtHHMM(dateOrMs) {
@@ -168,13 +176,9 @@ export function fmtEtHHMM(dateOrMs) {
     const d = typeof dateOrMs === "number" ? new Date(dateOrMs) : dateOrMs;
     return new Intl.DateTimeFormat("en-US", {
       timeZone: "America/New_York",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false
+      hour: "2-digit", minute: "2-digit", hour12: false
     }).format(d);
-  } catch {
-    return "-";
-  }
+  } catch { return "-"; }
 }
 
 export function getBtcSession(now = new Date()) {
@@ -182,9 +186,8 @@ export function getBtcSession(now = new Date()) {
   const inAsia = h >= 0 && h < 8;
   const inEurope = h >= 7 && h < 16;
   const inUs = h >= 13 && h < 22;
-
-  if (inEurope && inUs) return "Europe/US overlap";
-  if (inAsia && inEurope) return "Asia/Europe overlap";
+  if (inEurope && inUs) return "EU/US";
+  if (inAsia && inEurope) return "Asia/EU";
   if (inAsia) return "Asia";
   if (inEurope) return "Europe";
   if (inUs) return "US";
@@ -209,12 +212,7 @@ export function parsePriceToBeat(market) {
 }
 
 export function safeFileSlug(x) {
-  return String(x ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/(^-|-$)/g, "")
-    .slice(0, 120);
+  return String(x ?? "").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/-+/g, "-").replace(/(^-|-$)/g, "").slice(0, 120);
 }
 
 export function extractNumericFromMarket(market) {
@@ -223,39 +221,28 @@ export function extractNumericFromMarket(market) {
     "strike", "threshold", "thresholdPrice", "threshold_price",
     "targetPrice", "target_price", "referencePrice", "reference_price"
   ];
-
   for (const k of directKeys) {
     const v = market?.[k];
     const n = typeof v === "string" ? Number(v) : typeof v === "number" ? v : NaN;
     if (Number.isFinite(n)) return n;
   }
-
   const seen = new Set();
   const stack = [{ obj: market, depth: 0 }];
-
   while (stack.length) {
     const { obj, depth } = stack.pop();
     if (!obj || typeof obj !== "object") continue;
     if (seen.has(obj) || depth > 6) continue;
     seen.add(obj);
-
     const entries = Array.isArray(obj) ? obj.entries() : Object.entries(obj);
     for (const [key, value] of entries) {
       const k = String(key).toLowerCase();
-      if (value && typeof value === "object") {
-        stack.push({ obj: value, depth: depth + 1 });
-        continue;
-      }
-
+      if (value && typeof value === "object") { stack.push({ obj: value, depth: depth + 1 }); continue; }
       if (!/(price|strike|threshold|target|beat)/i.test(k)) continue;
-
       const n = typeof value === "string" ? Number(value) : typeof value === "number" ? value : NaN;
       if (!Number.isFinite(n)) continue;
-
       if (n > 1000 && n < 2_000_000) return n;
     }
   }
-
   return null;
 }
 
@@ -287,50 +274,139 @@ const EXIT_REASON_LABEL = {
   TIME_DECAY:     "TEMPO CURTO",
 };
 
-export function formatPositionLines({ position, currentMarketPrice, tradingEnabled, exitEval }) {
-  if (!tradingEnabled) return [];
-
+// ─────────────────────────────────────────────────────────
+// buildScreen(d) — unified 2-column layout for 15m and 5m
+// ─────────────────────────────────────────────────────────
+export function buildScreen(d) {
+  const W = screenWidth();
   const lines = [];
-  lines.push(sepLine());
-  lines.push("");
 
+  // ── HEADER ──
+  const titleLine = d.modeTag ? `${d.modeTag} ${d.title}` : d.title;
+  lines.push(titleLine);
+
+  // Trading status + shortcuts + clock on a single line
+  const etStr = `${ANSI.dim}${fmtEtTime()} ${getBtcSession()}${ANSI.reset}`;
+  const tradingBadge = d.tradingEnabled
+    ? `${ANSI.green}● ATIVO${ANSI.reset} $${d.tradeAmount}`
+    : d.initError
+      ? `${ANSI.red}● ERRO${ANSI.reset}`
+      : `${ANSI.gray}● LEITURA${ANSI.reset}`;
+  const confirmOrKeys = d.confirmHint ?? d.shortcutsHint ?? "";
+  lines.push(`${tradingBadge}  ${confirmOrKeys}${" ".repeat(Math.max(0, W - visLen(tradingBadge) - visLen(confirmOrKeys) - visLen(etStr) - 4))}  ${etStr}`);
+
+  // Status message (errors, confirmations) — always visible
   const statusLine = getStatusLine();
   if (statusLine) {
     lines.push(statusLine);
-    lines.push("");
   }
 
-  if (!position.active) {
-    lines.push(kv("POSITION:", `${ANSI.gray}Nenhuma posição aberta${ANSI.reset}`));
+  lines.push(sepLine());
+
+  // ── TOP ROW: Prices left │ Polymarket right ──
+  const leftPrices = [];
+  leftPrices.push(section("PRECOS"));
+  leftPrices.push(kv("Binance:", d.binanceSpot));
+  leftPrices.push(kv("Chainlink:", d.chainlinkLine));
+  if (d.priceToBeat !== null) {
+    leftPrices.push(kv("Price Beat:", `$${formatNumberDisplay(d.priceToBeat, 0)}`));
+  }
+  if (d.intervalLine) leftPrices.push(d.intervalLine);
+
+  const rightPoly = [];
+  rightPoly.push(section("POLYMARKET"));
+  rightPoly.push(`${ANSI.green}\u2191 UP${ANSI.reset} ${d.marketUpStr}  ${ANSI.dim}|${ANSI.reset}  ${ANSI.red}\u2193 DOWN${ANSI.reset} ${d.marketDownStr}`);
+  rightPoly.push(kv("Time left:", `${d.timeColor}${fmtTimeLeft(d.timeLeftMin)}${ANSI.reset}`));
+  if (d.liquidity !== null) rightPoly.push(kv("Liquidity:", formatNumberDisplay(d.liquidity, 0)));
+  rightPoly.push(kv("Market:", d.marketSlug));
+
+  lines.push(...mergeColumns(leftPrices, rightPoly, W));
+  lines.push(sepLine());
+
+  // ── MIDDLE ROW: Indicators left │ Signal right ──
+  const leftInd = [];
+  leftInd.push(section("INDICADORES"));
+  for (const ind of d.indicators) {
+    leftInd.push(kv(ind.label + ":", ind.value));
+  }
+
+  const rightSignal = [];
+  rightSignal.push(section("SINAL"));
+  rightSignal.push(kv("Predict:", d.predictValue));
+  rightSignal.push(kv("Rec:", d.recLine));
+  // pad to match left height
+  while (rightSignal.length < leftInd.length) rightSignal.push("");
+
+  lines.push(...mergeColumns(leftInd, rightSignal, W));
+  lines.push(sepLine());
+
+  // ── BOTTOM ROW: Position left │ History right ──
+  const leftPos = [];
+  leftPos.push(section("POSICAO"));
+
+  if (!d.tradingEnabled) {
+    leftPos.push(`${ANSI.gray}Trading desativado${ANSI.reset}`);
+  } else if (!d.position.active) {
+    leftPos.push(`${ANSI.gray}Nenhuma posicao aberta${ANSI.reset}`);
   } else {
-    const sideColor = position.side === "UP" ? ANSI.green : ANSI.red;
-    const sideLabel = position.side === "UP" ? "↑ UP" : "↓ DOWN";
-    const sharesStr = position.shares.toFixed(2);
-    const entryStr = (position.entryPrice * 100).toFixed(1) + "¢";
-
-    const roi = currentMarketPrice != null
-      ? (() => {
-        const currentValue = position.shares * currentMarketPrice;
-        const pnlUsdc = currentValue - position.invested;
-        const roiPct = (pnlUsdc / position.invested) * 100;
-        const roiColor = pnlUsdc >= 0 ? ANSI.green : ANSI.red;
-        const sign = pnlUsdc >= 0 ? "+" : "";
-        return `${roiColor}${sign}${roiPct.toFixed(1)}%${ANSI.reset} | P&L: ${roiColor}${sign}$${pnlUsdc.toFixed(2)}${ANSI.reset} | Val: $${currentValue.toFixed(2)}`;
-      })()
-      : `${ANSI.gray}-${ANSI.reset}`;
-
-    lines.push(kv("POSITION:", `${sideColor}${sideLabel}${ANSI.reset} @ ${entryStr}  |  ${sharesStr} shares  |  $${position.invested.toFixed(2)}`));
-    lines.push(kv("ROI:", roi));
-
-    if (exitEval?.shouldSell) {
-      const urgencyColor = exitEval.urgency === "HIGH" ? ANSI.red : ANSI.yellow;
-      const label = EXIT_REASON_LABEL[exitEval.reason] ?? exitEval.reason;
-      lines.push(kv("SAÍDA:", `${urgencyColor}► VENDER — ${label}${ANSI.reset}`));
+    const p = d.position;
+    const sideColor = p.side === "UP" ? ANSI.green : ANSI.red;
+    const sideLabel = p.side === "UP" ? "\u2191 UP" : "\u2193 DOWN";
+    const entryStr = (p.entryPrice * 100).toFixed(1) + "\u00A2";
+    leftPos.push(`${sideColor}${sideLabel}${ANSI.reset} @ ${entryStr}  ${p.shares.toFixed(2)} shares  $${p.invested.toFixed(2)}`);
+    if (d.currentMktPrice != null) {
+      const val = p.shares * d.currentMktPrice;
+      const pnl = val - p.invested;
+      const roiPct = (pnl / p.invested) * 100;
+      const c = pnl >= 0 ? ANSI.green : ANSI.red;
+      const s = pnl >= 0 ? "+" : "";
+      leftPos.push(kv("ROI:", `${c}${s}${roiPct.toFixed(1)}%${ANSI.reset}  P&L: ${c}${s}$${pnl.toFixed(2)}${ANSI.reset}  Val: $${val.toFixed(2)}`));
+    }
+    if (d.exitEval?.shouldSell) {
+      const uc = d.exitEval.urgency === "HIGH" ? ANSI.red : ANSI.yellow;
+      const label = EXIT_REASON_LABEL[d.exitEval.reason] ?? d.exitEval.reason;
+      leftPos.push(`${uc}\u25BA VENDER \u2014 ${label}${ANSI.reset}`);
     }
   }
 
-  lines.push("");
-  lines.push(`  ${ANSI.white}[B]${ANSI.reset} Comprar  ${ANSI.white}[S]${ANSI.reset} Vender  ${ANSI.white}[Q]${ANSI.reset} Sair`);
+  const rightHist = [];
+  rightHist.push(section("HISTORICO"));
+  // Signal stats
+  const rs = d.runningStats ?? { wins: 0, losses: 0, totalPnl: 0 };
+  const total = rs.wins + rs.losses;
+  const wr = total > 0 ? `${((rs.wins / total) * 100).toFixed(0)}%` : "-";
+  const pc = rs.totalPnl > 0 ? ANSI.green : rs.totalPnl < 0 ? ANSI.red : ANSI.gray;
+  const ps = rs.totalPnl > 0 ? "+" : "";
+  rightHist.push(`W:${ANSI.green}${rs.wins}${ANSI.reset} L:${ANSI.red}${rs.losses}${ANSI.reset}  WR:${wr}  ${pc}${ps}${rs.totalPnl.toFixed(2)} USDC${ANSI.reset}`);
 
-  return lines;
+  // Closed trades
+  if (d.closedTrades?.length) {
+    for (const t of d.closedTrades.slice(0, 3)) {
+      const color = t.pnl >= 0 ? ANSI.green : ANSI.red;
+      const pSign = t.pnl >= 0 ? "+" : "";
+      const rSign = t.roi >= 0 ? "+" : "";
+      const sl = t.side === "UP" ? `${ANSI.green}\u2191UP${ANSI.reset}` : `${ANSI.red}\u2193DN${ANSI.reset}`;
+      const ts = new Date(t.ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      rightHist.push(`${ANSI.dim}${ts}${ANSI.reset} ${sl} ${color}${pSign}$${t.pnl.toFixed(2)} ${rSign}${t.roi.toFixed(0)}%${ANSI.reset}`);
+    }
+  }
+
+  // Recent outcomes (signal-based)
+  if (d.recentOutcomes?.length) {
+    for (const o of d.recentOutcomes.slice(0, 2)) {
+      const color = o.won ? ANSI.green : ANSI.red;
+      const label = o.won ? "WIN" : "LOSS";
+      rightHist.push(`${color}${label}${ANSI.reset} ${ANSI.dim}${o.side}${ANSI.reset} ${color}${o.pnl > 0 ? "+" : ""}${o.pnl.toFixed(2)}${ANSI.reset}`);
+    }
+  }
+
+  // Pad columns
+  while (leftPos.length < rightHist.length) leftPos.push("");
+  while (rightHist.length < leftPos.length) rightHist.push("");
+
+  lines.push(...mergeColumns(leftPos, rightHist, W));
+  lines.push(sepLine());
+  lines.push(centerText(`${ANSI.dim}${ANSI.gray}created by @krajekis${ANSI.reset}`, W));
+
+  return lines.join("\n") + "\n";
 }

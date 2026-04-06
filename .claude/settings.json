@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(fish -c \"npm install @polymarket/clob-client\")",
+      "Bash(fish -c \"nvm use latest && npm install @polymarket/clob-client\")",
+      "Bash(fish -c \"nvm list\")",
+      "Bash(fish -c \"nvm current\")",
+      "Bash(fish -c \"nvm use lts && npm install @polymarket/clob-client\")",
+      "Bash(fish -c \"nvm use lts && node -e \\\\\"import\\('@polymarket/clob-client'\\).then\\(m => console.log\\(Object.keys\\(m\\).join\\(', '\\)\\)\\)\\\\\"\")",
+      "Bash(fish -c 'nvm use lts && node -e \":*)",
+      "Bash(fish -c 'nvm use lts && node --input-type=module -e \":*)"
+    ]
+  }
+}

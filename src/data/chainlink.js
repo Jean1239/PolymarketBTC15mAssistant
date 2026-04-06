@@ -3,6 +3,7 @@ import { CONFIG } from "../config.js";
 
 const AGGREGATOR_ABI = [
   "function latestRoundData() view returns (uint80 roundId,int256 answer,uint256 startedAt,uint256 updatedAt,uint80 answeredInRound)",
+  "function getRoundData(uint80 _roundId) view returns (uint80 roundId,int256 answer,uint256 startedAt,uint256 updatedAt,uint80 answeredInRound)",
   "function decimals() view returns (uint8)"
 ];
 
@@ -80,9 +81,79 @@ async function fetchLatestRoundData(rpcUrl, aggregator) {
   const result = await ethCall(rpcUrl, aggregator, data);
   const decoded = iface.decodeFunctionResult("latestRoundData", result);
   return {
+    roundId: decoded[0],
     answer: decoded[1],
     updatedAt: decoded[3]
   };
+}
+
+async function fetchRoundData(rpcUrl, aggregator, roundId) {
+  const data = iface.encodeFunctionData("getRoundData", [roundId]);
+  const result = await ethCall(rpcUrl, aggregator, data);
+  const decoded = iface.decodeFunctionResult("getRoundData", result);
+  return {
+    roundId: decoded[0],
+    answer: decoded[1],
+    updatedAt: decoded[3]
+  };
+}
+
+// Finds the Chainlink round whose updatedAt is the first one >= targetTimeSec.
+// Uses binary search over the aggregator-level round index embedded in the roundId.
+async function findRoundAtTimestamp(rpcUrl, aggregator, targetTimeSec) {
+  const latest = await fetchLatestRoundData(rpcUrl, aggregator);
+  const latestId = BigInt(latest.roundId);
+  const PHASE_MASK = BigInt("0xFFFFFFFFFFFFFFFF");
+  const phaseId = latestId >> BigInt(64);
+  const latestAggRound = latestId & PHASE_MASK;
+
+  // Binary search for the earliest round with updatedAt >= targetTimeSec
+  let lo = BigInt(1);
+  let hi = latestAggRound;
+  let result = latest;
+
+  while (lo <= hi) {
+    const mid = (lo + hi) / BigInt(2);
+    const roundId = (phaseId << BigInt(64)) | mid;
+    try {
+      const rd = await fetchRoundData(rpcUrl, aggregator, roundId);
+      const updatedAt = Number(rd.updatedAt);
+      if (updatedAt === 0) { lo = mid + BigInt(1); continue; }
+      if (updatedAt >= targetTimeSec) {
+        result = rd;
+        hi = mid - BigInt(1);
+      } else {
+        lo = mid + BigInt(1);
+      }
+    } catch {
+      lo = mid + BigInt(1);
+    }
+  }
+  return result;
+}
+
+// Returns the Chainlink BTC/USD price at (or just after) a given Unix timestamp in ms.
+export async function fetchChainlinkPriceAtMs(targetMs) {
+  if (!CONFIG.chainlink.btcUsdAggregator) return null;
+  const targetSec = Math.floor(targetMs / 1000);
+  const rpcs = getOrderedRpcs();
+  if (rpcs.length === 0) return null;
+
+  const aggregator = CONFIG.chainlink.btcUsdAggregator;
+  for (const rpc of rpcs) {
+    try {
+      if (cachedDecimals === null) {
+        cachedDecimals = await fetchDecimals(rpc, aggregator);
+      }
+      const round = await findRoundAtTimestamp(rpc, aggregator, targetSec);
+      const scale = 10 ** Number(cachedDecimals);
+      return Number(round.answer) / scale;
+    } catch {
+      cachedDecimals = null;
+      continue;
+    }
+  }
+  return null;
 }
 
 export async function fetchChainlinkBtcUsd() {
