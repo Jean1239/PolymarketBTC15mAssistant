@@ -24,6 +24,9 @@ function toNumber(x) {
   return Number.isFinite(n) ? n : null;
 }
 
+const STALE_MS = 120_000;  // on-chain events are less frequent
+const CHECK_MS = 15_000;
+
 export function startChainlinkPriceStream({
   aggregator = CONFIG.chainlink.btcUsdAggregator,
   decimals = 8,
@@ -43,6 +46,8 @@ export function startChainlinkPriceStream({
   let closed = false;
   let reconnectMs = 500;
   let urlIndex = 0;
+  let lastMessageAt = 0;
+  let watchdog = null;
 
   let lastPrice = null;
   let lastUpdatedAt = null;
@@ -52,6 +57,7 @@ export function startChainlinkPriceStream({
 
   const connect = () => {
     if (closed) return;
+    if (watchdog) { clearInterval(watchdog); watchdog = null; }
 
     const url = wssUrls[urlIndex % wssUrls.length];
     urlIndex += 1;
@@ -68,6 +74,7 @@ export function startChainlinkPriceStream({
 
     const scheduleReconnect = () => {
       if (closed) return;
+      if (watchdog) { clearInterval(watchdog); watchdog = null; }
       try {
         ws?.terminate();
       } catch {
@@ -82,6 +89,10 @@ export function startChainlinkPriceStream({
 
     ws.on("open", () => {
       reconnectMs = 500;
+      lastMessageAt = Date.now();
+      watchdog = setInterval(() => {
+        if (Date.now() - lastMessageAt > STALE_MS) scheduleReconnect();
+      }, CHECK_MS);
       const id = nextId++;
       send({
         jsonrpc: "2.0",
@@ -98,6 +109,7 @@ export function startChainlinkPriceStream({
     });
 
     ws.on("message", (buf) => {
+      lastMessageAt = Date.now();
       let msg;
       try {
         msg = JSON.parse(buf.toString());
@@ -147,6 +159,7 @@ export function startChainlinkPriceStream({
     },
     close() {
       closed = true;
+      if (watchdog) { clearInterval(watchdog); watchdog = null; }
       try {
         if (ws && subId) {
           ws.send(JSON.stringify({ jsonrpc: "2.0", id: nextId++, method: "eth_unsubscribe", params: [subId] }));

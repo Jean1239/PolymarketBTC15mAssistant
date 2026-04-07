@@ -15,12 +15,17 @@ function buildWsUrl(symbol) {
   return `wss://stream.binance.com:9443/ws/${s}@trade`;
 }
 
+const STALE_MS = 30_000;
+const CHECK_MS = 10_000;
+
 export function startBinanceOfiStream({ symbol = CONFIG.symbol } = {}) {
   let ws = null;
   let closed = false;
   let reconnectMs = 500;
   let lastPrice = null;
   let lastTs = null;
+  let lastMessageAt = 0;
+  let watchdog = null;
 
   // Ring buffer of recent trades: { price, qty, isBuyerMaker, ts }
   const trades = [];
@@ -59,15 +64,21 @@ export function startBinanceOfiStream({ symbol = CONFIG.symbol } = {}) {
 
   const connect = () => {
     if (closed) return;
+    if (watchdog) { clearInterval(watchdog); watchdog = null; }
 
     const url = buildWsUrl(symbol);
     ws = new WebSocket(url, { agent: wsAgentForUrl(url) });
 
     ws.on("open", () => {
       reconnectMs = 500;
+      lastMessageAt = Date.now();
+      watchdog = setInterval(() => {
+        if (Date.now() - lastMessageAt > STALE_MS) scheduleReconnect();
+      }, CHECK_MS);
     });
 
     ws.on("message", (buf) => {
+      lastMessageAt = Date.now();
       try {
         const msg = JSON.parse(buf.toString());
         const p = toNumber(msg.p);
@@ -93,6 +104,7 @@ export function startBinanceOfiStream({ symbol = CONFIG.symbol } = {}) {
 
     const scheduleReconnect = () => {
       if (closed) return;
+      if (watchdog) { clearInterval(watchdog); watchdog = null; }
       try { ws?.terminate(); } catch { /* ignore */ }
       ws = null;
       const wait = reconnectMs;
@@ -123,6 +135,7 @@ export function startBinanceOfiStream({ symbol = CONFIG.symbol } = {}) {
     },
     close() {
       closed = true;
+      if (watchdog) { clearInterval(watchdog); watchdog = null; }
       try { ws?.close(); } catch { /* ignore */ }
       ws = null;
     }

@@ -22,6 +22,9 @@ function toFiniteNumber(x) {
   return Number.isFinite(n) ? n : null;
 }
 
+const STALE_MS = 60_000;  // Chainlink updates every few seconds
+const CHECK_MS = 10_000;
+
 export function startPolymarketChainlinkPriceStream({
   wsUrl = CONFIG.polymarket.liveDataWsUrl,
   symbolIncludes = "btc",
@@ -39,12 +42,15 @@ export function startPolymarketChainlinkPriceStream({
   let ws = null;
   let closed = false;
   let reconnectMs = 500;
+  let lastMessageAt = 0;
+  let watchdog = null;
 
   let lastPrice = null;
   let lastUpdatedAt = null;
 
   const connect = () => {
     if (closed) return;
+    if (watchdog) { clearInterval(watchdog); watchdog = null; }
 
     ws = new WebSocket(wsUrl, {
       handshakeTimeout: 10_000,
@@ -53,6 +59,7 @@ export function startPolymarketChainlinkPriceStream({
 
     const scheduleReconnect = () => {
       if (closed) return;
+      if (watchdog) { clearInterval(watchdog); watchdog = null; }
       try {
         ws?.terminate();
       } catch {
@@ -66,6 +73,10 @@ export function startPolymarketChainlinkPriceStream({
 
     ws.on("open", () => {
       reconnectMs = 500;
+      lastMessageAt = Date.now();
+      watchdog = setInterval(() => {
+        if (Date.now() - lastMessageAt > STALE_MS) scheduleReconnect();
+      }, CHECK_MS);
       try {
         ws.send(
           JSON.stringify({
@@ -79,6 +90,7 @@ export function startPolymarketChainlinkPriceStream({
     });
 
     ws.on("message", (buf) => {
+      lastMessageAt = Date.now();
       const msg = typeof buf === "string" ? buf : buf?.toString?.() ?? "";
       if (!msg || !msg.trim()) return;
 
@@ -118,6 +130,7 @@ export function startPolymarketChainlinkPriceStream({
     },
     close() {
       closed = true;
+      if (watchdog) { clearInterval(watchdog); watchdog = null; }
       try {
         ws?.close();
       } catch {
