@@ -78,6 +78,7 @@ async function main() {
   const dryRun = createDryRunLogger5m("./logs/dryrun_5m.csv");
   process.on("exit", () => dryRun.flushNow());
 
+  let signalCooldown = { side: null, ts: 0, slug: null };
   let prevSpotPrice    = null;
   let prevCurrentPrice = null;
   let usdcBalance      = null;
@@ -151,7 +152,21 @@ async function main() {
       const marketUp   = poly.ok ? poly.prices.up   : null;
       const marketDown = poly.ok ? poly.prices.down  : null;
       const edge = computeEdge({ modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, marketYes: marketUp, marketNo: marketDown });
-      const rec  = decide5m({ remainingMinutes: timeLeftMin, edgeUp: edge.edgeUp, edgeDown: edge.edgeDown, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown });
+      const ofi1mVal = ofiData.ofi1m?.ofi ?? null;
+      let rec = decide5m({ remainingMinutes: timeLeftMin, edgeUp: edge.edgeUp, edgeDown: edge.edgeDown, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, heikenColor: consec.color, ofi1m: ofi1mVal });
+
+      // ── Signal cooldown (prevent flip-flop) ───────────────────────────────
+      if (rec.action === "ENTER") {
+        if (signalCooldown.slug !== marketSlugNow) {
+          signalCooldown = { side: null, ts: 0, slug: marketSlugNow };
+        }
+        if (signalCooldown.side !== null && signalCooldown.side !== rec.side && Date.now() - signalCooldown.ts < 30_000) {
+          rec = { action: "NO_TRADE", side: null, phase: rec.phase, reason: "cooldown" };
+        }
+        if (rec.action === "ENTER") {
+          signalCooldown = { side: rec.side, ts: Date.now(), slug: marketSlugNow };
+        }
+      }
 
       // ── Trading ───────────────────────────────────────────────────────────
       const marketSlugNow = poly.ok ? String(poly.market?.slug ?? "") : "";

@@ -1,16 +1,14 @@
 // Edge detection and decision engine for 5m mode.
 // Reuses computeEdge from edge.js — only the decision thresholds change.
 
-import { clamp } from "../utils.js";
-
 export { computeEdge } from "./edge.js";
 
-export function decide5m({ remainingMinutes, edgeUp, edgeDown, modelUp = null, modelDown = null }) {
+export function decide5m({ remainingMinutes, edgeUp, edgeDown, modelUp = null, modelDown = null, heikenColor = null, ofi1m = null }) {
   // Phases tuned for 5-minute window
   const phase = remainingMinutes > 3 ? "EARLY" : remainingMinutes > 1.5 ? "MID" : "LATE";
 
-  const threshold = phase === "EARLY" ? 0.04 : phase === "MID" ? 0.08 : 0.15;
-  const minProb = phase === "EARLY" ? 0.54 : phase === "MID" ? 0.58 : 0.62;
+  const threshold = phase === "EARLY" ? 0.04 : phase === "MID" ? 0.12 : 0.25;
+  const minProb = phase === "EARLY" ? 0.54 : phase === "MID" ? 0.62 : 0.70;
 
   if (edgeUp === null || edgeDown === null) {
     return { action: "NO_TRADE", side: null, phase, reason: "missing_market_data" };
@@ -19,6 +17,18 @@ export function decide5m({ remainingMinutes, edgeUp, edgeDown, modelUp = null, m
   const bestSide = edgeUp > edgeDown ? "UP" : "DOWN";
   const bestEdge = bestSide === "UP" ? edgeUp : edgeDown;
   const bestModel = bestSide === "UP" ? modelUp : modelDown;
+
+  // Alignment filter: if BOTH HA and OFI disagree with direction, reject.
+  // This catches the low-conviction flip-flop signals that lose money.
+  if (heikenColor !== null && ofi1m !== null) {
+    const haAgainst = (bestSide === "UP" && heikenColor === "red") ||
+                      (bestSide === "DOWN" && heikenColor === "green");
+    const ofiAgainst = (bestSide === "UP" && ofi1m < -0.05) ||
+                       (bestSide === "DOWN" && ofi1m > 0.05);
+    if (haAgainst && ofiAgainst) {
+      return { action: "NO_TRADE", side: null, phase, reason: "alignment_conflict" };
+    }
+  }
 
   if (bestEdge < threshold) {
     return { action: "NO_TRADE", side: null, phase, reason: `edge_below_${threshold}` };

@@ -142,9 +142,6 @@ async function main() {
       const vwapCrossCount  = countVwapCrosses(closes, vwapSeries, 20);
       const volumeRecent    = candles.slice(-20).reduce((a, c) => a + c.volume, 0);
       const volumeAvg       = candles.slice(-120).reduce((a, c) => a + c.volume, 0) / 6;
-      const failedVwapReclaim = vwapNow !== null && vwapSeries.length >= 3
-        ? closes[closes.length - 1] < vwapNow && closes[closes.length - 2] > vwapSeries[vwapSeries.length - 2]
-        : false;
 
       // ── Signal ────────────────────────────────────────────────────────────
       const regimeInfo = detectRegime({ price: lastPrice, vwap: vwapNow, vwapSlope, vwapCrossCount, volumeRecent, volumeAvg });
@@ -153,14 +150,13 @@ async function main() {
         price: lastPrice, vwap: vwapNow, vwapSlope,
         rsi: rsiNow, rsiSlope, macd,
         heikenColor: consec.color, heikenCount: consec.count,
-        failedVwapReclaim,
       });
 
       const timeAware  = applyTimeAwareness(scored.rawUp, timeLeftMin, CONFIG.candleWindowMinutes);
       const marketUp   = poly.ok ? poly.prices.up   : null;
       const marketDown = poly.ok ? poly.prices.down  : null;
       const edge = computeEdge({ modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, marketYes: marketUp, marketNo: marketDown });
-      const rec  = decide({ remainingMinutes: timeLeftMin, edgeUp: edge.edgeUp, edgeDown: edge.edgeDown, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown });
+      const rec  = decide({ remainingMinutes: timeLeftMin, edgeUp: edge.edgeUp, edgeDown: edge.edgeDown, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, conflicted: scored.conflicted });
 
       // ── Trading ───────────────────────────────────────────────────────────
       const marketSlugNow = poly.ok ? String(poly.market?.slug ?? "") : "";

@@ -20,7 +20,7 @@ export function computeEdge({ modelUp, modelDown, marketYes, marketNo }) {
   };
 }
 
-export function decide({ remainingMinutes, edgeUp, edgeDown, modelUp = null, modelDown = null }) {
+export function decide({ remainingMinutes, edgeUp, edgeDown, modelUp = null, modelDown = null, conflicted = false }) {
   const phase = remainingMinutes > 10 ? "EARLY" : remainingMinutes > 5 ? "MID" : "LATE";
 
   const threshold = phase === "EARLY" ? 0.05 : phase === "MID" ? 0.1 : 0.2;
@@ -29,6 +29,11 @@ export function decide({ remainingMinutes, edgeUp, edgeDown, modelUp = null, mod
 
   if (edgeUp === null || edgeDown === null) {
     return { action: "NO_TRADE", side: null, phase, reason: "missing_market_data" };
+  }
+
+  // Indicator conflict: HA + MACD + RSI majority disagrees with VWAP direction
+  if (conflicted) {
+    return { action: "NO_TRADE", side: null, phase, reason: "indicator_conflict" };
   }
 
   const bestSide = edgeUp > edgeDown ? "UP" : "DOWN";
