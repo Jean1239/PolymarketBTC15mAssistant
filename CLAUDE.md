@@ -104,30 +104,58 @@ Called once at startup via `applyGlobalProxyFromEnv()`. Reads `HTTPS_PROXY`/`HTT
 - Terminal screen refreshed every second via ANSI escape codes (`\x1b[H` + per-line `\x1b[K` + `\x1b[J`), rendered inside an alternate screen buffer.
 - `./logs/signals.csv` — one row per poll tick (15m mode) with regime, signal, model probabilities, market prices, edge, and recommendation.
 - `./logs/signals_5m.csv` — one row per poll tick (5m mode) with OFI, momentum, EMA cross, RSI, model probs, edge, and recommendation.
-- `./logs/dryrun_15m.csv` — dry-run study log for the 15m app (see below).
-- `./logs/dryrun_5m.csv` — dry-run study log for the 5m app (see below).
+- `./logs/dryrun_15m.csv` — paper-trading tick-by-tick log for the 15m app (see below).
+- `./logs/dryrun_5m.csv` — paper-trading tick-by-tick log for the 5m app (see below).
+- `./logs/dryrun_15m_trades.csv` — per-trade journal (one row per completed trade) for 15m.
+- `./logs/dryrun_5m_trades.csv` — per-trade journal (one row per completed trade) for 5m.
 - `./logs/polymarket_market_<slug>.json` — raw Polymarket market JSON dumped once per new market slug.
 
-### Dry-run study logger (`src/dryRun.js`)
+### Paper-trading simulator (`src/dryRun.js`)
 
-Enabled automatically in both apps — no extra flags needed. Each app creates one logger instance at startup:
+Enabled automatically in both apps — no extra flags needed. Each app creates one simulator at startup:
 
 ```
-createDryRunLogger15m("./logs/dryrun_15m.csv")  // used by index.js
-createDryRunLogger5m("./logs/dryrun_5m.csv")    // used by index5m.js
+createDryRunSimulator15m("./logs/dryrun_15m.csv", CONFIG.trading)  // used by index.js
+createDryRunSimulator5m("./logs/dryrun_5m.csv", CONFIG.trading)    // used by index5m.js
 ```
 
-**How it works:** ticks accumulate in memory (one object per poll second) keyed to the current market slug. When the slug changes (market settled), the entire buffer is flushed to CSV in one `appendFileSync` call with four outcome columns filled in retroactively:
+**How it works:** the simulator maintains a virtual position and mirrors real trading logic:
+
+1. **BUY** — when the bot emits an `ENTER` signal and no virtual position is open, it simulates a buy at the current market price (using `CONFIG.trading.tradeAmount` as the virtual investment).
+2. **HOLD** — while a position is open, each tick evaluates exit conditions using the same `evaluateExit` logic as real trading (take profit, stop loss, signal flip, time decay).
+3. **SELL** — when an exit condition triggers, the position is closed at the current market price. ROI and PNL are recorded.
+4. **SETTLEMENT** — when the market slug changes (settlement), any open position resolves at $1 (if the held side won) or $0 (if it lost).
+
+After selling, the simulator can re-enter on a new signal within the same market.
+
+**Exit conditions** (same as real trading):
+| Condition | Trigger |
+|---|---|
+| `TAKE_PROFIT` | ROI ≥ `takeProfitPct` AND model confirms reversal |
+| `STOP_LOSS` | ROI ≤ `-stopLossPct` AND model confirms reversal |
+| `SIGNAL_FLIP` | Model opposite-side probability ≥ `signalFlipMinProb` |
+| `TIME_DECAY` | < 1.5 min left, losing > 5%, entry was ≥ 50¢ |
+| `SETTLED_WIN` / `SETTLED_LOSS` | Market ended, position resolved |
+
+**Output files:**
+
+The tick CSV logs every second with all indicators + simulation state. The trades CSV logs one row per completed trade for easy analysis.
+
+**Tick CSV simulation columns:**
 
 | Column | Description |
 |---|---|
-| `outcome` | `UP` or `DOWN` — which side actually won (BTC above/below open price) |
-| `btc_at_settlement` | Final Chainlink BTC/USD price at the moment of flush |
-| `direction_correct` | `1` if signal matched outcome, `0` if not, empty if `NO TRADE` |
-| `signal_roi` | Hypothetical ROI if you had entered at that tick's market price. E.g. BUY UP at 0.65¢ → WIN: `+0.5385`; LOSS: `-1.0000`. Empty for `NO TRADE`. |
+| `sim_action` | `WAIT` (no position, no signal), `BUY`, `HOLD`, `SELL` |
+| `sim_side` | `UP` or `DOWN` — which side is held |
+| `sim_entry_price` | Price at which the virtual position was opened |
+| `sim_current_price` | Current market price of the held side |
+| `sim_roi_pct` | Current ROI % of the open position (or final ROI on SELL) |
+| `sim_exit_reason` | Exit reason on SELL rows (TP, SL, FLIP, TIME_DECAY, SETTLED) |
+| `sim_pnl` | Realized PNL in virtual USD (only on SELL rows) |
+| `sim_cum_pnl` | Running cumulative PNL across all trades |
+| `outcome` | `UP` or `DOWN` — which side actually won (retroactive) |
+| `btc_at_settlement` | Final Chainlink BTC/USD price (retroactive) |
 
-`process.on("exit")` flushes any in-progress market buffer so data is not lost on Ctrl+C / Q.
+**Trades CSV columns:** `entry_time, exit_time, market_slug, side, entry_price, exit_price, shares, invested, exit_value, pnl, roi_pct, exit_reason, duration_s`
 
-**15m columns:** `timestamp, market_slug, time_left_min, btc_price, market_up, market_down, regime, signal, model_up, model_down, edge_up, edge_down, rec_detail, rsi, rsi_slope, macd_hist, macd_label, ha_color, ha_count, vwap, vwap_dist_pct, vwap_slope, outcome, btc_at_settlement, direction_correct, signal_roi`
-
-**5m columns:** `timestamp, market_slug, time_left_min, btc_price, market_up, market_down, signal, model_up, model_down, edge_up, edge_down, rec_detail, ofi_30s, ofi_1m, ofi_2m, roc1, roc3, ema_cross, rsi, ha_color, ha_count, vwap, vwap_dist_pct, vwap_slope, outcome, btc_at_settlement, direction_correct, signal_roi`
+`process.on("exit")` flushes any in-progress market (settles open position) so data is not lost on Ctrl+C / Q.

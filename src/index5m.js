@@ -30,7 +30,7 @@ import { setupKeyboard } from "./trading/keyboard.js";
 import { processActionQueue } from "./trading/executor.js";
 import { createPriceLatch } from "./trading/priceLatch.js";
 import { createTradeTracker } from "./trading/tracker.js";
-import { createDryRunLogger5m } from "./dryRun.js";
+import { createDryRunSimulator5m } from "./dryRun.js";
 
 applyGlobalProxyFromEnv();
 
@@ -75,7 +75,7 @@ async function main() {
   const tracker       = createTradeTracker();
 
   const dumpedMarkets = new Set();
-  const dryRun = createDryRunLogger5m("./logs/dryrun_5m.csv");
+  const dryRun = createDryRunSimulator5m("./logs/dryrun_5m.csv", CONFIG.trading);
   process.on("exit", () => dryRun.flushNow());
 
   let signalCooldown = { side: null, ts: 0, slug: null };
@@ -355,17 +355,18 @@ async function main() {
         "", // pnl
       ]);
 
-      // ── Dry-run study log ─────────────────────────────────────────────────
+      // ── Dry-run paper-trading simulator ────────────────────────────────────
       {
-        const signalSide = rec.action === "ENTER" ? rec.side : null;
-        const entryPrice = signalSide === "UP" ? marketUp : signalSide === "DOWN" ? marketDown : null;
-        const vwapSlopeLbl = vwapSlope === null ? "" : vwapSlope > 0 ? "UP" : vwapSlope < 0 ? "DOWN" : "FLAT";
         dryRun.tick({
           slug: marketSlugNow,
           priceToBeat,
           btcPrice: currentPrice,
-          signalSide,
-          entryPrice,
+          rec,
+          modelUp: timeAware.adjustedUp,
+          modelDown: timeAware.adjustedDown,
+          marketUp,
+          marketDown,
+          timeLeftMin,
           dataValues: [
             new Date().toISOString(),
             marketSlugNow,
