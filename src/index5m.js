@@ -155,6 +155,9 @@ async function main() {
       const ofi1mVal = ofiData.ofi1m?.ofi ?? null;
       let rec = decide5m({ remainingMinutes: timeLeftMin, edgeUp: edge.edgeUp, edgeDown: edge.edgeDown, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, heikenColor: consec.color, ofi1m: ofi1mVal });
 
+      // ── Trading ───────────────────────────────────────────────────────────
+      const marketSlugNow = poly.ok ? String(poly.market?.slug ?? "") : "";
+
       // ── Signal cooldown (prevent flip-flop) ───────────────────────────────
       if (rec.action === "ENTER") {
         if (signalCooldown.slug !== marketSlugNow) {
@@ -167,9 +170,6 @@ async function main() {
           signalCooldown = { side: rec.side, ts: Date.now(), slug: marketSlugNow };
         }
       }
-
-      // ── Trading ───────────────────────────────────────────────────────────
-      const marketSlugNow = poly.ok ? String(poly.market?.slug ?? "") : "";
       resetIfMarketChanged(marketSlugNow);
 
       await processActionQueue(keyboard.actionQueue, { trading, poly, rec, timeAware, marketSlugNow });
