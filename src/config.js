@@ -43,6 +43,8 @@ export const CONFIG = {
     flipConfirmTicks: Number(process.env.TRADE_FLIP_CONFIRM_TICKS || "2"),
     // When true: paper-trading only — no real orders even if private key is set
     dryRunOnly: (process.env.DRY_RUN || "").toLowerCase() === "true",
+    // When true: enables real order execution. Default false = simulated/paper mode.
+    liveTradingEnabled: (process.env.POLYMARKET_LIVE_TRADING || "").toLowerCase() === "true",
   },
 
   chainlink: {

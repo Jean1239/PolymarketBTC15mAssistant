@@ -59,12 +59,16 @@ async function main() {
   const polymarketLiveStream = startPolymarketChainlinkPriceStream({});
   const chainlinkStream     = startChainlinkPriceStream({});
 
+  const liveTrading = CONFIG.trading.liveTradingEnabled;
+
   let trading = { client: null, tradingEnabled: false, tradeAmount: 0, initError: null };
   try {
     trading = await initTradingClient(CONFIG);
   } catch (err) {
     trading.initError = err?.message ?? String(err);
   }
+  // Override: only allow real orders when POLYMARKET_LIVE_TRADING=true
+  if (!liveTrading) trading.tradingEnabled = false;
 
   const resolveMarket = createMarketResolver(CONFIG.polymarket, CONFIG.pollIntervalMs);
   const keyboard      = setupKeyboard({ tradingEnabled: trading.tradingEnabled });
@@ -250,20 +254,40 @@ async function main() {
       const ptbStr   = ptbDelta === null ? ""
         : ` (${ptbDelta > 0 ? ANSI.green + "+" : ptbDelta < 0 ? ANSI.red : ANSI.gray}$${Math.abs(ptbDelta).toFixed(2)}${ANSI.reset})`;
 
-      const pos           = getPosition();
-      const currentMktPrice = pos.active ? (pos.side === "UP" ? marketUp : marketDown) : null;
-      const exitEval      = evaluateExit({
-        position: pos, modelUp: pLong, modelDown: pShort,
-        currentMarketPrice: currentMktPrice, timeLeftMin,
-        takeProfitPct: CONFIG.trading.takeProfitPct,
-        stopLossPct: CONFIG.trading.stopLossPct,
-        signalFlipMinProb: CONFIG.trading.signalFlipMinProb,
-        stopLossMinProb: CONFIG.trading.stopLossMinProb,
-        stopLossMinDurationS: CONFIG.trading.stopLossMinDurationS,
-        flipConfirmCount,
-        flipConfirmTicks: CONFIG.trading.flipConfirmTicks,
-      });
-      flipConfirmCount = pos.active ? (exitEval.flipConfirmCount ?? 0) : 0;
+      const simStats = dryRun.getStats();
+
+      // Position and exit eval: real when live, simulated otherwise
+      let displayPos, displayCurrentMktPrice, displayExitEval;
+      if (liveTrading) {
+        displayPos = getPosition();
+        displayCurrentMktPrice = displayPos.active ? (displayPos.side === "UP" ? marketUp : marketDown) : null;
+        displayExitEval = evaluateExit({
+          position: displayPos, modelUp: pLong, modelDown: pShort,
+          currentMarketPrice: displayCurrentMktPrice, timeLeftMin,
+          takeProfitPct: CONFIG.trading.takeProfitPct,
+          stopLossPct: CONFIG.trading.stopLossPct,
+          signalFlipMinProb: CONFIG.trading.signalFlipMinProb,
+          stopLossMinProb: CONFIG.trading.stopLossMinProb,
+          stopLossMinDurationS: CONFIG.trading.stopLossMinDurationS,
+          flipConfirmCount,
+          flipConfirmTicks: CONFIG.trading.flipConfirmTicks,
+        });
+        flipConfirmCount = displayPos.active ? (displayExitEval.flipConfirmCount ?? 0) : 0;
+      } else {
+        displayPos = simStats.position;
+        displayCurrentMktPrice = displayPos.active ? (displayPos.side === "UP" ? marketUp : marketDown) : null;
+        displayExitEval = evaluateExit({
+          position: displayPos, modelUp: pLong, modelDown: pShort,
+          currentMarketPrice: displayCurrentMktPrice, timeLeftMin,
+          takeProfitPct: CONFIG.trading.takeProfitPct,
+          stopLossPct: CONFIG.trading.stopLossPct,
+          signalFlipMinProb: CONFIG.trading.signalFlipMinProb,
+          stopLossMinProb: CONFIG.trading.stopLossMinProb,
+          stopLossMinDurationS: CONFIG.trading.stopLossMinDurationS,
+          flipConfirmCount: 0,
+          flipConfirmTicks: 1,
+        });
+      }
 
       const signal = rec.action === "ENTER" ? (rec.side === "UP" ? "BUY UP" : "BUY DOWN") : "NO TRADE";
 
@@ -271,11 +295,12 @@ async function main() {
         title: poly.ok ? (poly.market?.question ?? "-") : "-",
         modeTag: null,
         marketSlug,
+        liveTrading,
         tradingEnabled: trading.tradingEnabled,
         initError: trading.initError,
-        tradeAmount: trading.tradeAmount,
-        usdcBalance,
-        usdcBalanceError,
+        tradeAmount: CONFIG.trading.tradeAmount,
+        usdcBalance: liveTrading ? usdcBalance : null,
+        usdcBalanceError: liveTrading ? usdcBalanceError : null,
         confirmHint,
         shortcutsHint,
         binanceSpot: `${colorPriceLine({ label: "", price: spotPrice, prevPrice: prevSpotPrice, decimals: 0, prefix: "$" })}`,
@@ -296,11 +321,11 @@ async function main() {
         ],
         predictValue: `${ANSI.green}LONG ${formatProbPct(pLong, 0)}${ANSI.reset} / ${ANSI.red}SHORT ${formatProbPct(pShort, 0)}${ANSI.reset}`,
         recLine: `${recColor}${recLabel}${ANSI.reset}`,
-        position: pos,
-        currentMktPrice,
-        exitEval,
-        closedTrades: dryRun.getStats().recentTrades,
-        runningStats: (() => { const s = dryRun.getStats(); return { wins: s.wins, losses: s.losses, totalPnl: s.cumulativePnl }; })(),
+        position: displayPos,
+        currentMktPrice: displayCurrentMktPrice,
+        exitEval: displayExitEval,
+        closedTrades: simStats.recentTrades,
+        runningStats: { wins: simStats.wins, losses: simStats.losses, totalPnl: simStats.cumulativePnl },
         recentOutcomes: [],
       }));
 

@@ -372,9 +372,20 @@ function createSimulator(csvPath, header, config) {
     _flush();
   }
 
-  /** Get cumulative stats for display purposes. */
+  /** Get cumulative stats and current virtual position for display purposes. */
   function getStats() {
-    return { wins, losses, totalTrades, cumulativePnl, positionActive: pos.active, positionSide: pos.side, recentTrades };
+    return {
+      wins, losses, totalTrades, cumulativePnl, recentTrades,
+      position: {
+        active: pos.active,
+        side: pos.side,
+        entryPrice: pos.entryPrice,
+        shares: pos.shares,
+        invested: pos.invested,
+        entryTime: pos.entryTime,
+        marketSlug: pos.marketSlug,
+      },
+    };
   }
 
   return { tick, flushNow, getStats };

@@ -287,17 +287,24 @@ export function buildScreen(d) {
 
   // Trading status + shortcuts + clock on a single line
   const etStr = `${ANSI.dim}${fmtEtTime()} ${getBtcSession()}${ANSI.reset}`;
-  let tradingBadge = d.tradingEnabled
-    ? `${ANSI.green}● ATIVO${ANSI.reset} $${d.tradeAmount}`
-    : d.initError
-      ? `${ANSI.red}● ERRO${ANSI.reset}`
-      : `${ANSI.gray}● LEITURA${ANSI.reset}`;
-  if (d.tradingEnabled) {
-    if (d.usdcBalanceError) {
-      tradingBadge += `  ${ANSI.red}Saldo: ${d.usdcBalanceError}${ANSI.reset}`;
-    } else if (d.usdcBalance != null) {
-      tradingBadge += `  ${ANSI.dim}Saldo: ${ANSI.reset}${ANSI.white}$${Number(d.usdcBalance).toFixed(2)} USDC${ANSI.reset}`;
+  let tradingBadge;
+  if (d.liveTrading) {
+    // Live trading mode
+    if (d.tradingEnabled) {
+      tradingBadge = `${ANSI.green}● LIVE${ANSI.reset} $${d.tradeAmount}`;
+      if (d.usdcBalanceError) {
+        tradingBadge += `  ${ANSI.red}Saldo: ${d.usdcBalanceError}${ANSI.reset}`;
+      } else if (d.usdcBalance != null) {
+        tradingBadge += `  ${ANSI.dim}Saldo: ${ANSI.reset}${ANSI.white}$${Number(d.usdcBalance).toFixed(2)} USDC${ANSI.reset}`;
+      }
+    } else if (d.initError) {
+      tradingBadge = `${ANSI.red}● LIVE ERRO${ANSI.reset}`;
+    } else {
+      tradingBadge = `${ANSI.red}● LIVE (sem chave)${ANSI.reset}`;
     }
+  } else {
+    // Simulated mode
+    tradingBadge = `${ANSI.yellow}● SIM${ANSI.reset} $${d.tradeAmount}`;
   }
   const confirmOrKeys = d.confirmHint ?? d.shortcutsHint ?? "";
   lines.push(`${tradingBadge}  ${confirmOrKeys}${" ".repeat(Math.max(0, W - visLen(tradingBadge) - visLen(confirmOrKeys) - visLen(etStr) - 4))}  ${etStr}`);
@@ -349,9 +356,12 @@ export function buildScreen(d) {
 
   // ── BOTTOM ROW: Position left │ History right ──
   const leftPos = [];
-  leftPos.push(section("POSICAO"));
+  const posLabel = d.liveTrading ? "POSICAO" : "POSICAO (sim)";
+  leftPos.push(section(posLabel));
 
-  if (!d.tradingEnabled) {
+  if (!d.liveTrading && !d.position.active) {
+    leftPos.push(`${ANSI.gray}Aguardando sinal...${ANSI.reset}`);
+  } else if (d.liveTrading && !d.tradingEnabled) {
     leftPos.push(`${ANSI.gray}Trading desativado${ANSI.reset}`);
   } else if (!d.position.active) {
     leftPos.push(`${ANSI.gray}Nenhuma posicao aberta${ANSI.reset}`);
