@@ -67,10 +67,11 @@ All modules are reusable by future bots targeting other markets or strategies.
 
 - **client.js** — Initializes `ClobClient` with L1 (EIP-712) + L2 (HMAC) auth. Derives API credentials on first run via `createOrDeriveApiKey()`. Caches the client singleton. Auto-detects `POLY_GNOSIS_SAFE` when `POLYMARKET_SIGNATURE_TYPE=1` but the funder address is a GnosisSafe contract. Exposes `balanceAddress` (funder or EOA) for USDC balance queries.
 - **orders.js** — `buyMarketOrder()` and `sellMarketOrder()` wrappers around `client.createAndPostMarketOrder()` using `OrderType.FAK` (Fill and Kill — partial fills accepted). Buy price = `bestAsk + 0.02`; sell price = `bestBid - 0.02`, both clamped to valid range. Returns `{ ok, order }` or `{ ok: false, error }`.
-- **position.js** — In-memory position state: `recordBuy()`, `recordSell()`, `getPosition()`, `computeROI()`, `resetIfMarketChanged()`. `fetchPositionBalance()` syncs shares from chain via `getBalanceAllowance()` (used before selling to get actual on-chain balance). `fetchUsdcBalance(address)` reads USDC.e balance directly from Polygon blockchain (not the CLOB API, which only tracks deposited collateral). `evaluateExit()` recommends exits: TP and SL only trigger when the model also confirms reversal (`oppositeProb >= signalFlipMinProb`); TIME_DECAY only applies when entry price ≥ 0.50 (cheap entries are held to resolution).
+- **position.js** — In-memory position state: `recordBuy()`, `recordSell()`, `getPosition()`, `computeROI()`, `resetIfMarketChanged()`. `fetchPositionBalance()` syncs shares from chain via `getBalanceAllowance()` (used before selling to get actual on-chain balance). `fetchUsdcBalance(address)` reads USDC.e balance directly from Polygon blockchain (not the CLOB API, which only tracks deposited collateral). `evaluateExit()` recommends exits: TP triggers when model confirms reversal (`oppositeProb >= signalFlipMinProb`); SL requires a stricter `stopLossMinProb` threshold AND the position to have aged at least `stopLossMinDurationS` seconds (both configurable, 5m uses tighter values); TIME_DECAY only applies when entry price ≥ 0.50 (cheap entries are held to resolution).
 - **keyboard.js** — `setupKeyboard({ tradingEnabled })` sets up stdin raw mode and returns `{ actionQueue, getConfirmHint(ctx), stdinError }`. The action queue is drained each tick by the executor. `getConfirmHint` builds the [Y]/[N] confirmation line shown on the display.
 - **executor.js** — `processActionQueue(queue, ctx)` drains the keyboard action queue and executes buy/sell orders: selects side, picks bestAsk/bestBid with slippage, calls `buyMarketOrder`/`sellMarketOrder`, fetches on-chain balance, calls `recordBuy`/`recordSell`, logs errors to `./logs/trade_errors.log`. Calls optional `onSold` callback after a successful sell.
 - **priceLatch.js** — `createPriceLatch()` returns `{ update(ctx) }`. Manages the state machine that latches the Chainlink BTC/USD reference price at market open (used as the "price to beat" on the display). Reads from the market object first, then fetches historical Chainlink if the app started late (>30s after open), otherwise latches the live price.
+- **redeem.js** — `redeemSettledPositions({ wallet, conditionId, marketSlug })`. Called automatically on every market slug change when `tradingEnabled` is true. Calls `ConditionalTokens.redeemPositions(USDC_E, ZERO_BYTES32, conditionId, [1, 2])` on Polygon to convert any winning tokens back to USDC. Redeeming both index sets is safe: the CTF contract pays out only for positions actually held; losing tokens return $0. Logs to `./logs/trade_orders.log`. Fire-and-forget — does not block the poll loop.
 - **tracker.js** — `createTradeTracker()` returns `{ update(ctx), getStats(), getRecentOutcomes() }`. Tracks the first signal seen per market; when the market slug changes (settlement), computes win/loss and P&L based on the final Chainlink price vs the latched reference. Returns a `settled` object from `update()` so the caller writes it to the CSV in its own format.
 
 Both main loops listen for keypresses when trading is enabled: **[B]** buy the recommended side, **[S]** sell 100% of position, **[Q]** quit. Actions are queued and processed inside the main loop where market data is available.
@@ -95,9 +96,13 @@ Called once at startup via `applyGlobalProxyFromEnv()`. Reads `HTTPS_PROXY`/`HTT
 | `POLYMARKET_FUNDER` | (derived from key) | Polymarket profile address (proxy/GnosisSafe wallet) |
 | `POLYMARKET_SIGNATURE_TYPE` | `0` | `0`=EOA, `1`=POLY_PROXY (auto-detects GnosisSafe), `2`=GNOSIS_SAFE |
 | `POLYMARKET_TRADE_AMOUNT` | `5` | USDC amount per trade |
+| `DRY_RUN` | `false` | Set to `true` to run in paper-trading-only mode (no real orders, no redemption, even if private key is set) |
 | `TRADE_TAKE_PROFIT_PCT` | `20` | ROI % to recommend take-profit (requires model reversal) |
 | `TRADE_STOP_LOSS_PCT` | `25` | ROI % loss to recommend stop-loss (requires model reversal) |
 | `TRADE_SIGNAL_FLIP_PROB` | `0.58` | Min opposite-side probability to consider model reversed |
+| `TRADE_SL_MIN_PROB` | `0.58` (15m) / `0.65` (5m) | Min opposite-side probability specifically to trigger stop-loss (can be stricter than flip prob) |
+| `TRADE_SL_MIN_DURATION_S` | `0` (15m) / `120` (5m) | Minimum seconds a position must be held before stop-loss can fire |
+| `TRADE_FLIP_COOLDOWN_S` | `60` (15m) / `90` (5m) | Seconds to wait after a SIGNAL_FLIP before re-entering the same market |
 
 ## Output
 
@@ -126,16 +131,20 @@ createDryRunSimulator5m("./logs/dryrun_5m.csv", CONFIG.trading)    // used by in
 3. **SELL** — when an exit condition triggers, the position is closed at the current market price. ROI and PNL are recorded.
 4. **SETTLEMENT** — when the market slug changes (settlement), any open position resolves at $1 (if the held side won) or $0 (if it lost).
 
-After selling, the simulator can re-enter on a new signal within the same market.
+After selling, the simulator can re-enter on a new signal within the same market, subject to the post-flip cooldown.
 
 **Exit conditions** (same as real trading):
 | Condition | Trigger |
 |---|---|
-| `TAKE_PROFIT` | ROI ≥ `takeProfitPct` AND model confirms reversal |
-| `STOP_LOSS` | ROI ≤ `-stopLossPct` AND model confirms reversal |
-| `SIGNAL_FLIP` | Model opposite-side probability ≥ `signalFlipMinProb` |
+| `TAKE_PROFIT` | ROI ≥ `takeProfitPct` AND model confirms reversal (`oppositeProb >= signalFlipMinProb`) |
+| `STOP_LOSS` | ROI ≤ `-stopLossPct` AND `oppositeProb >= stopLossMinProb` AND position age ≥ `stopLossMinDurationS` |
+| `SIGNAL_FLIP` | Model opposite-side probability ≥ `signalFlipMinProb` (and no TP/SL threshold crossed) |
 | `TIME_DECAY` | < 1.5 min left, losing > 5%, entry was ≥ 50¢ |
 | `SETTLED_WIN` / `SETTLED_LOSS` | Market ended, position resolved |
+
+**Post-flip cooldown:** after a `SIGNAL_FLIP` exit the simulator will not open a new position for `flipCooldownS` seconds (60s on 15m, 90s on 5m). The cooldown resets when a new market starts.
+
+**Stop-loss guards:** the 5m simulator uses `stopLossMinProb = 0.65` (stricter than the base `signalFlipMinProb = 0.58`) and `stopLossMinDurationS = 120` to avoid being stopped out in the first ~2 minutes of a volatile move. Dry-run analysis showed 85 stops averaging only 79 seconds, despite an 86% settled win rate — most would have recovered if held longer.
 
 **Output files:**
 

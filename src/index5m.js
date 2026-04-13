@@ -31,6 +31,7 @@ import { processActionQueue } from "./trading/executor.js";
 import { createPriceLatch } from "./trading/priceLatch.js";
 import { createTradeTracker } from "./trading/tracker.js";
 import { createDryRunSimulator5m } from "./dryRun.js";
+import { redeemSettledPositions } from "./trading/redeem.js";
 
 applyGlobalProxyFromEnv();
 
@@ -84,6 +85,9 @@ async function main() {
   let usdcBalance      = null;
   let usdcBalanceError = null;
   let usdcLastFetchMs  = 0;
+  let flipConfirmCount = 0;
+  let prevMarketSlug       = "";
+  let prevConditionId      = null;
 
   while (true) {
     const timing = getCandleWindowTiming(CONFIG.candleWindowMinutes);
@@ -156,7 +160,17 @@ async function main() {
       let rec = decide5m({ remainingMinutes: timeLeftMin, edgeUp: edge.edgeUp, edgeDown: edge.edgeDown, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, heikenColor: consec.color, ofi1m: ofi1mVal });
 
       // ── Trading ───────────────────────────────────────────────────────────
-      const marketSlugNow = poly.ok ? String(poly.market?.slug ?? "") : "";
+      const marketSlugNow   = poly.ok ? String(poly.market?.slug ?? "") : "";
+      const conditionIdNow  = poly.ok ? (poly.market?.conditionId ?? null) : null;
+
+      // On market change: redeem any settled tokens from the previous market
+      if (marketSlugNow && marketSlugNow !== prevMarketSlug && prevConditionId && trading.tradingEnabled) {
+        redeemSettledPositions({ wallet: trading.wallet, conditionId: prevConditionId, marketSlug: prevMarketSlug })
+          .catch(() => {});
+      }
+      if (conditionIdNow) prevConditionId = conditionIdNow;
+      prevMarketSlug = marketSlugNow || prevMarketSlug;
+
 
       // ── Signal cooldown (prevent flip-flop) ───────────────────────────────
       if (rec.action === "ENTER") {
@@ -286,7 +300,12 @@ async function main() {
         takeProfitPct: CONFIG.trading.takeProfitPct,
         stopLossPct: CONFIG.trading.stopLossPct,
         signalFlipMinProb: CONFIG.trading.signalFlipMinProb,
+        stopLossMinProb: CONFIG.trading.stopLossMinProb,
+        stopLossMinDurationS: CONFIG.trading.stopLossMinDurationS,
+        flipConfirmCount,
+        flipConfirmTicks: CONFIG.trading.flipConfirmTicks,
       });
+      flipConfirmCount = pos.active ? (exitEval.flipConfirmCount ?? 0) : 0;
 
       const modeTag = isNextMarket ? `${ANSI.yellow}[5m] [PROXIMO]${ANSI.reset}` : `${ANSI.yellow}[5m]${ANSI.reset}`;
 
@@ -324,9 +343,9 @@ async function main() {
         position: pos,
         currentMktPrice,
         exitEval,
-        closedTrades: [],
-        runningStats: tracker.getStats(),
-        recentOutcomes: tracker.getRecentOutcomes(),
+        closedTrades: dryRun.getStats().recentTrades,
+        runningStats: (() => { const s = dryRun.getStats(); return { wins: s.wins, losses: s.losses, totalPnl: s.cumulativePnl }; })(),
+        recentOutcomes: [],
       }));
 
       prevSpotPrice    = spotPrice    ?? prevSpotPrice;

@@ -92,13 +92,19 @@ function evaluateSimExit({ pos, modelUp, modelDown, currentMarketPrice, timeLeft
     : null;
   const modelConfirmsReversal = oppositeProb != null && oppositeProb >= config.signalFlipMinProb;
 
+  // Stop-loss guards: higher prob threshold + minimum hold time
+  const slMinProb = config.stopLossMinProb ?? config.signalFlipMinProb;
+  const slConfirmed = oppositeProb != null && oppositeProb >= slMinProb;
+  const positionAgeS = pos.entryTime ? (Date.now() - pos.entryTime) / 1000 : Infinity;
+  const slAgedEnough = positionAgeS >= (config.stopLossMinDurationS ?? 0);
+
   // Take profit — only if model also confirms reversal
   if (roiPct >= config.takeProfitPct && modelConfirmsReversal) {
     return { shouldSell: true, reason: "TAKE_PROFIT", roiPct };
   }
 
-  // Stop loss — only if model also confirms reversal
-  if (roiPct <= -config.stopLossPct && modelConfirmsReversal) {
+  // Stop loss — requires stricter prob + minimum hold time
+  if (roiPct <= -config.stopLossPct && slConfirmed && slAgedEnough) {
     return { shouldSell: true, reason: "STOP_LOSS", roiPct };
   }
 
@@ -130,6 +136,20 @@ function createSimulator(csvPath, header, config) {
   let pos = { active: false, side: null, entryPrice: 0, shares: 0, invested: 0, marketSlug: null, entryTime: null };
   let cumulativePnl = 0;
 
+  // Trade stats
+  let wins = 0;
+  let losses = 0;
+  let totalTrades = 0;
+  let recentTrades = []; // { side, pnl, roi, ts, reason }[]
+
+  // Cooldown tracking: timestamp (ms) of last SIGNAL_FLIP exit, reset on new market
+  let lastFlipTime = null;
+  const flipCooldownMs = (config.flipCooldownS ?? 0) * 1000;
+
+  // Consecutive-tick confirmation counter for SIGNAL_FLIP
+  let flipConfirmCount = 0;
+  const flipConfirmTicks = config.flipConfirmTicks ?? 1;
+
   function _resetPos() {
     pos = { active: false, side: null, entryPrice: 0, shares: 0, invested: 0, marketSlug: null, entryTime: null };
   }
@@ -160,6 +180,12 @@ function createSimulator(csvPath, header, config) {
       durationS,
     ]);
     fs.appendFileSync(tradesPath, row + "\n", "utf8");
+
+    // Update in-memory stats
+    totalTrades += 1;
+    if (pnl >= 0) wins += 1; else losses += 1;
+    recentTrades.unshift({ side: pos.side, pnl, roi: roiPct, ts: exitTime, reason });
+    if (recentTrades.length > 10) recentTrades.pop();
   }
 
   function _settlePosition() {
@@ -228,6 +254,8 @@ function createSimulator(csvPath, header, config) {
     if (slug !== currentSlug && currentSlug !== null) {
       _settlePosition();
       _flush();
+      lastFlipTime = null;     // reset cooldown on new market
+      flipConfirmCount = 0;    // reset flip confirmation on new market
     }
 
     currentSlug = slug;
@@ -247,12 +275,23 @@ function createSimulator(csvPath, header, config) {
       const currentMktPrice = pos.side === "UP" ? marketUp : marketDown;
 
       // Evaluate exit
-      const exitEval = evaluateSimExit({
+      const rawEval = evaluateSimExit({
         pos, modelUp, modelDown,
         currentMarketPrice: currentMktPrice,
         timeLeftMin,
         config,
       });
+
+      // Apply consecutive-tick confirmation gate for SIGNAL_FLIP
+      let exitEval = rawEval;
+      if (rawEval.shouldSell && rawEval.reason === "SIGNAL_FLIP") {
+        flipConfirmCount++;
+        if (flipConfirmCount < flipConfirmTicks) {
+          exitEval = { shouldSell: false, reason: null, roiPct: rawEval.roiPct };
+        }
+      } else {
+        flipConfirmCount = 0;
+      }
 
       if (exitEval.shouldSell && currentMktPrice != null) {
         // ── SELL ────────────────────────────────────────────────────────
@@ -270,6 +309,11 @@ function createSimulator(csvPath, header, config) {
         simExitReason = exitEval.reason;
         simPnl = fmt(pnl, 4);
 
+        if (exitEval.reason === "SIGNAL_FLIP") {
+          lastFlipTime = Date.now();
+        }
+        flipConfirmCount = 0;
+
         _logTrade({ exitPrice: currentMktPrice, exitValue, pnl, roiPct, reason: exitEval.reason, exitTime: Date.now() });
         _resetPos();
       } else {
@@ -281,8 +325,11 @@ function createSimulator(csvPath, header, config) {
         simRoiPct = exitEval.roiPct != null ? fmt(exitEval.roiPct, 2) : "";
       }
     } else if (rec.action === "ENTER" && rec.side) {
-      // ── BUY ───────────────────────────────────────────────────────────
-      const entryMktPrice = rec.side === "UP" ? marketUp : marketDown;
+      // ── BUY — skip if still within post-flip cooldown ─────────────────
+      const inCooldown = flipCooldownMs > 0 && lastFlipTime !== null &&
+        (Date.now() - lastFlipTime) < flipCooldownMs;
+
+      const entryMktPrice = !inCooldown ? (rec.side === "UP" ? marketUp : marketDown) : null;
       if (entryMktPrice != null && entryMktPrice > 0) {
         const shares = config.tradeAmount / entryMktPrice;
         pos = {
@@ -294,6 +341,8 @@ function createSimulator(csvPath, header, config) {
           marketSlug: slug,
           entryTime: Date.now(),
         };
+
+        flipConfirmCount = 0;
 
         simAction = "BUY";
         simSide = rec.side;
@@ -325,7 +374,7 @@ function createSimulator(csvPath, header, config) {
 
   /** Get cumulative stats for display purposes. */
   function getStats() {
-    return { cumulativePnl, positionActive: pos.active, positionSide: pos.side };
+    return { wins, losses, totalTrades, cumulativePnl, positionActive: pos.active, positionSide: pos.side, recentTrades };
   }
 
   return { tick, flushNow, getStats };
@@ -344,6 +393,10 @@ export function createDryRunSimulator15m(csvPath, tradingConfig = {}) {
     takeProfitPct: tradingConfig.takeProfitPct ?? 20,
     stopLossPct: tradingConfig.stopLossPct ?? 25,
     signalFlipMinProb: tradingConfig.signalFlipMinProb ?? 0.58,
+    stopLossMinProb: tradingConfig.stopLossMinProb ?? null,
+    stopLossMinDurationS: tradingConfig.stopLossMinDurationS ?? 0,
+    flipCooldownS: tradingConfig.flipCooldownS ?? 60,
+    flipConfirmTicks: tradingConfig.flipConfirmTicks ?? 2,
   };
   return createSimulator(csvPath, HEADER_15M, config);
 }
@@ -351,7 +404,7 @@ export function createDryRunSimulator15m(csvPath, tradingConfig = {}) {
 /**
  * Create a paper-trading simulator for the 5-minute assistant.
  * @param {string} csvPath - path for the tick-by-tick CSV
- * @param {{ tradeAmount?: number, takeProfitPct?: number, stopLossPct?: number, signalFlipMinProb?: number }} [tradingConfig]
+ * @param {{ tradeAmount?: number, takeProfitPct?: number, stopLossPct?: number, signalFlipMinProb?: number, stopLossMinProb?: number, stopLossMinDurationS?: number, flipCooldownS?: number }} [tradingConfig]
  */
 export function createDryRunSimulator5m(csvPath, tradingConfig = {}) {
   const config = {
@@ -359,6 +412,10 @@ export function createDryRunSimulator5m(csvPath, tradingConfig = {}) {
     takeProfitPct: tradingConfig.takeProfitPct ?? 20,
     stopLossPct: tradingConfig.stopLossPct ?? 25,
     signalFlipMinProb: tradingConfig.signalFlipMinProb ?? 0.58,
+    stopLossMinProb: tradingConfig.stopLossMinProb ?? 0.65,
+    stopLossMinDurationS: tradingConfig.stopLossMinDurationS ?? 120,
+    flipCooldownS: tradingConfig.flipCooldownS ?? 90,
+    flipConfirmTicks: tradingConfig.flipConfirmTicks ?? 3,
   };
   return createSimulator(csvPath, HEADER_5M, config);
 }

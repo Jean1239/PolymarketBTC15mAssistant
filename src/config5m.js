@@ -22,5 +22,18 @@ export const CONFIG = {
     ...BASE.polymarket,
     seriesId: "10684",
     seriesSlug: "btc-up-or-down-5m"
-  }
+  },
+
+  // 5m-specific trading overrides
+  trading: {
+    ...BASE.trading,
+    // Higher conviction required before stopping out (vs 0.58 base)
+    stopLossMinProb: Number(process.env.TRADE_SL_MIN_PROB || "0.65"),
+    // Position must be held at least 2 minutes before SL can fire
+    stopLossMinDurationS: Number(process.env.TRADE_SL_MIN_DURATION_S || "120"),
+    // Longer cooldown between flips on the faster 5m timeframe
+    flipCooldownS: Number(process.env.TRADE_FLIP_COOLDOWN_S || "90"),
+    // Require 3 consecutive confirming ticks before exiting on signal flip
+    flipConfirmTicks: Number(process.env.TRADE_FLIP_CONFIRM_TICKS || "3"),
+  },
 };

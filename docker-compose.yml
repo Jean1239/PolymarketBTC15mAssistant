@@ -1,0 +1,28 @@
+services:
+  bot-15m:
+    build: .
+    container_name: polymarket-bot-15m
+    restart: unless-stopped
+    env_file: .env
+    command: node src/index.js
+    volumes:
+      - ./logs:/app/logs
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  bot-5m:
+    build: .
+    container_name: polymarket-bot-5m
+    restart: unless-stopped
+    env_file: .env
+    command: node src/index5m.js
+    volumes:
+      - ./logs:/app/logs
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

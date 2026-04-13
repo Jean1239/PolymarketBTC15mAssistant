@@ -30,6 +30,7 @@ import { processActionQueue } from "./trading/executor.js";
 import { createPriceLatch } from "./trading/priceLatch.js";
 import { createTradeTracker } from "./trading/tracker.js";
 import { createDryRunSimulator15m } from "./dryRun.js";
+import { redeemSettledPositions } from "./trading/redeem.js";
 
 applyGlobalProxyFromEnv();
 
@@ -74,18 +75,14 @@ async function main() {
   const dryRun = createDryRunSimulator15m("./logs/dryrun_15m.csv", CONFIG.trading);
   process.on("exit", () => dryRun.flushNow());
 
-  let closedTrades = []; // { side, entryPrice, exitPrice, pnl, roi, ts }[]
-
-  const onSold = ({ side, entryPrice, exitPrice, pnl, roi }) => {
-    closedTrades.unshift({ side, entryPrice, exitPrice, pnl, roi, ts: Date.now() });
-    if (closedTrades.length > 10) closedTrades.pop();
-  };
-
   let prevSpotPrice    = null;
   let prevCurrentPrice = null;
   let usdcBalance      = null;
   let usdcBalanceError = null;
   let usdcLastFetchMs  = 0;
+  let flipConfirmCount = 0;
+  let prevMarketSlug       = "";
+  let prevConditionId      = null;
 
   while (true) {
     const timing = getCandleWindowTiming(CONFIG.candleWindowMinutes);
@@ -159,10 +156,20 @@ async function main() {
       const rec  = decide({ remainingMinutes: timeLeftMin, edgeUp: edge.edgeUp, edgeDown: edge.edgeDown, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, conflicted: scored.conflicted });
 
       // ── Trading ───────────────────────────────────────────────────────────
-      const marketSlugNow = poly.ok ? String(poly.market?.slug ?? "") : "";
+      const marketSlugNow   = poly.ok ? String(poly.market?.slug ?? "") : "";
+      const conditionIdNow  = poly.ok ? (poly.market?.conditionId ?? null) : null;
+
+      // On market change: redeem any settled tokens from the previous market
+      if (marketSlugNow && marketSlugNow !== prevMarketSlug && prevConditionId && trading.tradingEnabled) {
+        redeemSettledPositions({ wallet: trading.wallet, conditionId: prevConditionId, marketSlug: prevMarketSlug })
+          .catch(() => {}); // fire-and-forget; errors are logged inside redeemSettledPositions
+      }
+      if (conditionIdNow) prevConditionId = conditionIdNow;
+      prevMarketSlug = marketSlugNow || prevMarketSlug;
+
       resetIfMarketChanged(marketSlugNow);
 
-      await processActionQueue(keyboard.actionQueue, { trading, poly, rec, timeAware, marketSlugNow, onSold });
+      await processActionQueue(keyboard.actionQueue, { trading, poly, rec, timeAware, marketSlugNow });
 
       if (trading.tradingEnabled && Date.now() - usdcLastFetchMs > 30_000) {
         usdcLastFetchMs = Date.now();
@@ -251,7 +258,12 @@ async function main() {
         takeProfitPct: CONFIG.trading.takeProfitPct,
         stopLossPct: CONFIG.trading.stopLossPct,
         signalFlipMinProb: CONFIG.trading.signalFlipMinProb,
+        stopLossMinProb: CONFIG.trading.stopLossMinProb,
+        stopLossMinDurationS: CONFIG.trading.stopLossMinDurationS,
+        flipConfirmCount,
+        flipConfirmTicks: CONFIG.trading.flipConfirmTicks,
       });
+      flipConfirmCount = pos.active ? (exitEval.flipConfirmCount ?? 0) : 0;
 
       const signal = rec.action === "ENTER" ? (rec.side === "UP" ? "BUY UP" : "BUY DOWN") : "NO TRADE";
 
@@ -287,9 +299,9 @@ async function main() {
         position: pos,
         currentMktPrice,
         exitEval,
-        closedTrades,
-        runningStats: tracker.getStats(),
-        recentOutcomes: tracker.getRecentOutcomes(),
+        closedTrades: dryRun.getStats().recentTrades,
+        runningStats: (() => { const s = dryRun.getStats(); return { wins: s.wins, losses: s.losses, totalPnl: s.cumulativePnl }; })(),
+        recentOutcomes: [],
       }));
 
       prevSpotPrice    = spotPrice    ?? prevSpotPrice;

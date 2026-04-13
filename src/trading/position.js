@@ -108,9 +108,9 @@ export function resetIfMarketChanged(currentSlug) {
 
 // Avalia se a posição aberta deve ser encerrada.
 // Retorna { shouldSell, reason, urgency } onde urgency é "HIGH" | "MEDIUM" | null
-export function evaluateExit({ position, modelUp, modelDown, currentMarketPrice, timeLeftMin, takeProfitPct, stopLossPct, signalFlipMinProb }) {
+export function evaluateExit({ position, modelUp, modelDown, currentMarketPrice, timeLeftMin, takeProfitPct, stopLossPct, signalFlipMinProb, stopLossMinProb = null, stopLossMinDurationS = 0, flipConfirmCount = 0, flipConfirmTicks = 1 }) {
   if (!position.active || currentMarketPrice == null) {
-    return { shouldSell: false, reason: null, urgency: null };
+    return { shouldSell: false, reason: null, urgency: null, flipConfirmCount: 0 };
   }
 
   const currentValue = position.shares * currentMarketPrice;
@@ -122,32 +122,42 @@ export function evaluateExit({ position, modelUp, modelDown, currentMarketPrice,
     : null;
   const modelConfirmsReversal = oppositeProb != null && oppositeProb >= signalFlipMinProb;
 
+  // Effective minimum prob for stop-loss (may be stricter than signalFlipMinProb)
+  const slMinProb = stopLossMinProb ?? signalFlipMinProb;
+  const slConfirmed = oppositeProb != null && oppositeProb >= slMinProb;
+  const positionAgeS = position.timestamp ? (Date.now() - position.timestamp) / 1000 : Infinity;
+  const slAgedEnough = positionAgeS >= stopLossMinDurationS;
+
   // 1. Take profit — só recomenda se o modelo também aponta reversão
   if (roiPct >= takeProfitPct && modelConfirmsReversal) {
     const urgency = oppositeProb >= 0.65 ? "HIGH" : "MEDIUM";
-    return { shouldSell: true, reason: "TAKE_PROFIT", urgency, roiPct };
+    return { shouldSell: true, reason: "TAKE_PROFIT", urgency, roiPct, flipConfirmCount: 0 };
   }
 
-  // 2. Stop loss — só recomenda se o modelo também aponta reversão
-  if (roiPct <= -stopLossPct && modelConfirmsReversal) {
+  // 2. Stop loss — requer prob mais alta e duração mínima (se configurado)
+  if (roiPct <= -stopLossPct && slConfirmed && slAgedEnough) {
     const urgency = oppositeProb >= 0.65 ? "HIGH" : "MEDIUM";
-    return { shouldSell: true, reason: "STOP_LOSS", urgency, roiPct };
+    return { shouldSell: true, reason: "STOP_LOSS", urgency, roiPct, flipConfirmCount: 0 };
   }
 
-  // 3. Sinal invertido com força suficiente, independente do ROI
+  // 3. Sinal invertido — requer N ticks consecutivos de confirmação
   if (modelConfirmsReversal) {
-    const urgency = oppositeProb >= 0.65 ? "HIGH" : "MEDIUM";
-    return { shouldSell: true, reason: "SIGNAL_FLIPPED", urgency, roiPct };
+    const newCount = flipConfirmCount + 1;
+    if (newCount >= flipConfirmTicks) {
+      const urgency = oppositeProb >= 0.65 ? "HIGH" : "MEDIUM";
+      return { shouldSell: true, reason: "SIGNAL_FLIPPED", urgency, roiPct, flipConfirmCount: newCount };
+    }
+    return { shouldSell: false, reason: null, urgency: null, roiPct, flipConfirmCount: newCount };
   }
 
   // 4. Pouco tempo + perdendo — só aplica se a entrada foi cara (>= 50¢)
   // Posições baratas já têm o risco precificado; vale segurar até a resolução
   const entryWasCheap = position.entryPrice < 0.50;
   if (timeLeftMin != null && timeLeftMin < 1.5 && roiPct < -5 && !entryWasCheap) {
-    return { shouldSell: true, reason: "TIME_DECAY", urgency: "MEDIUM", roiPct };
+    return { shouldSell: true, reason: "TIME_DECAY", urgency: "MEDIUM", roiPct, flipConfirmCount: 0 };
   }
 
-  return { shouldSell: false, reason: null, urgency: null, roiPct };
+  return { shouldSell: false, reason: null, urgency: null, roiPct, flipConfirmCount: 0 };
 }
 
 export async function fetchPositionBalance(client, tokenId) {

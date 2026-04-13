@@ -34,6 +34,15 @@ export const CONFIG = {
     takeProfitPct: Number(process.env.TRADE_TAKE_PROFIT_PCT || "20"),   // vender ao atingir +20% ROI
     stopLossPct: Number(process.env.TRADE_STOP_LOSS_PCT || "25"),        // vender ao atingir -25% ROI
     signalFlipMinProb: Number(process.env.TRADE_SIGNAL_FLIP_PROB || "0.58"), // prob oposta que indica inversão
+    // Stop-loss guards: require higher conviction + minimum hold time before stopping out
+    stopLossMinProb: Number(process.env.TRADE_SL_MIN_PROB || "0.58"),          // min opposite prob to trigger SL
+    stopLossMinDurationS: Number(process.env.TRADE_SL_MIN_DURATION_S || "0"),  // seconds position must age before SL fires
+    // Cooldown after a SIGNAL_FLIP before re-entering the same market
+    flipCooldownS: Number(process.env.TRADE_FLIP_COOLDOWN_S || "60"),
+    // Consecutive ticks model must confirm reversal before SIGNAL_FLIP fires
+    flipConfirmTicks: Number(process.env.TRADE_FLIP_CONFIRM_TICKS || "2"),
+    // When true: paper-trading only — no real orders even if private key is set
+    dryRunOnly: (process.env.DRY_RUN || "").toLowerCase() === "true",
   },
 
   chainlink: {

@@ -18,7 +18,12 @@ export async function initTradingClient(config) {
   const { privateKey, funder, signatureType, tradeAmount } = config.trading;
 
   if (!privateKey) {
-    _cached = { client: null, tradingEnabled: false, tradeAmount: 0 };
+    _cached = { client: null, tradingEnabled: false, tradeAmount: 0, wallet: null };
+    return _cached;
+  }
+
+  if (config.trading.dryRunOnly) {
+    _cached = { client: null, tradingEnabled: false, tradeAmount: 0, wallet: null };
     return _cached;
   }
 
@@ -95,7 +100,7 @@ export async function initTradingClient(config) {
 
   // balanceAddress: onde está o USDC — o funder (proxy) ou o EOA
   const balanceAddress = funderAddr ?? _wallet.address;
-  _cached = { client, tradingEnabled: true, tradeAmount, balanceAddress };
+  _cached = { client, tradingEnabled: true, tradeAmount, balanceAddress, wallet: _wallet };
   return _cached;
 }
 

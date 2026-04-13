@@ -377,33 +377,28 @@ export function buildScreen(d) {
   }
 
   const rightHist = [];
-  rightHist.push(section("HISTORICO"));
-  // Signal stats
+  rightHist.push(section("TRADES (paper)"));
+  // Paper-trading stats
   const rs = d.runningStats ?? { wins: 0, losses: 0, totalPnl: 0 };
   const total = rs.wins + rs.losses;
   const wr = total > 0 ? `${((rs.wins / total) * 100).toFixed(0)}%` : "-";
   const pc = rs.totalPnl > 0 ? ANSI.green : rs.totalPnl < 0 ? ANSI.red : ANSI.gray;
   const ps = rs.totalPnl > 0 ? "+" : "";
-  rightHist.push(`W:${ANSI.green}${rs.wins}${ANSI.reset} L:${ANSI.red}${rs.losses}${ANSI.reset}  WR:${wr}  ${pc}${ps}${rs.totalPnl.toFixed(2)} USDC${ANSI.reset}`);
+  rightHist.push(`${ANSI.dim}Trades: ${ANSI.reset}${total}  W:${ANSI.green}${rs.wins}${ANSI.reset} L:${ANSI.red}${rs.losses}${ANSI.reset}  WR:${wr}`);
+  rightHist.push(`${ANSI.dim}PNL:${ANSI.reset} ${pc}${ps}$${rs.totalPnl.toFixed(2)}${ANSI.reset}`);
 
-  // Closed trades
+  // Recent closed trades
   if (d.closedTrades?.length) {
-    for (const t of d.closedTrades.slice(0, 3)) {
+    for (const t of d.closedTrades.slice(0, 4)) {
       const color = t.pnl >= 0 ? ANSI.green : ANSI.red;
       const pSign = t.pnl >= 0 ? "+" : "";
       const rSign = t.roi >= 0 ? "+" : "";
       const sl = t.side === "UP" ? `${ANSI.green}\u2191UP${ANSI.reset}` : `${ANSI.red}\u2193DN${ANSI.reset}`;
       const ts = new Date(t.ts).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-      rightHist.push(`${ANSI.dim}${ts}${ANSI.reset} ${sl} ${color}${pSign}$${t.pnl.toFixed(2)} ${rSign}${t.roi.toFixed(0)}%${ANSI.reset}`);
-    }
-  }
-
-  // Recent outcomes (signal-based)
-  if (d.recentOutcomes?.length) {
-    for (const o of d.recentOutcomes.slice(0, 2)) {
-      const color = o.won ? ANSI.green : ANSI.red;
-      const label = o.won ? "WIN" : "LOSS";
-      rightHist.push(`${color}${label}${ANSI.reset} ${ANSI.dim}${o.side}${ANSI.reset} ${color}${o.pnl > 0 ? "+" : ""}${o.pnl.toFixed(2)}${ANSI.reset}`);
+      const reasonShort = t.reason === "TAKE_PROFIT" ? "TP" : t.reason === "STOP_LOSS" ? "SL"
+        : t.reason === "SIGNAL_FLIP" ? "FLIP" : t.reason === "TIME_DECAY" ? "TD"
+        : t.reason === "SETTLED_WIN" ? "WIN" : t.reason === "SETTLED_LOSS" ? "LOSS" : (t.reason ?? "");
+      rightHist.push(`${ANSI.dim}${ts}${ANSI.reset} ${sl} ${color}${pSign}$${t.pnl.toFixed(2)} ${rSign}${t.roi.toFixed(0)}%${ANSI.reset} ${ANSI.dim}${reasonShort}${ANSI.reset}`);
     }
   }
 
