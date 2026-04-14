@@ -32,6 +32,7 @@ import { createPriceLatch } from "./trading/priceLatch.js";
 import { createTradeTracker } from "./trading/tracker.js";
 import { createDryRunSimulator5m } from "./dryRun.js";
 import { redeemSettledPositions } from "./trading/redeem.js";
+import { notifyStart, notifyDailySummary } from "./notify.js";
 
 applyGlobalProxyFromEnv();
 
@@ -80,6 +81,8 @@ async function main() {
   const tracker       = createTradeTracker();
 
   const dumpedMarkets = new Set();
+  notifyStart("5m");
+
   const dryRun = createDryRunSimulator5m("./logs/dryrun_5m.csv", CONFIG.trading);
   process.on("exit", () => dryRun.flushNow());
 
@@ -92,6 +95,7 @@ async function main() {
   let flipConfirmCount = 0;
   let prevMarketSlug       = "";
   let prevConditionId      = null;
+  let lastDaySummaryEt     = new Date().toLocaleDateString("sv", { timeZone: "America/New_York" });
 
   while (true) {
     const timing = getCandleWindowTiming(CONFIG.candleWindowMinutes);
@@ -190,7 +194,7 @@ async function main() {
       }
       resetIfMarketChanged(marketSlugNow);
 
-      await processActionQueue(keyboard.actionQueue, { trading, poly, rec, timeAware, marketSlugNow });
+      await processActionQueue(keyboard.actionQueue, { trading, poly, rec, timeAware, marketSlugNow, botLabel: "5m" });
 
       if (trading.tradingEnabled && Date.now() - usdcLastFetchMs > 30_000) {
         usdcLastFetchMs = Date.now();
@@ -443,6 +447,13 @@ async function main() {
       console.log("────────────────────────────");
       console.log(`Error: ${err?.message ?? String(err)}`);
       console.log("────────────────────────────");
+    }
+
+    // Daily summary — fires once at the first tick of each new ET day
+    const todayEt = new Date().toLocaleDateString("sv", { timeZone: "America/New_York" });
+    if (todayEt !== lastDaySummaryEt) {
+      notifyDailySummary("5m", dryRun.getStats());
+      lastDaySummaryEt = todayEt;
     }
 
     await sleep(CONFIG.pollIntervalMs);

@@ -3,6 +3,7 @@ import { clamp } from "../utils.js";
 import { setStatusMessage } from "../display.js";
 import { buyMarketOrder, sellMarketOrder } from "./orders.js";
 import { getPosition, recordBuy, recordSell, fetchPositionBalance } from "./position.js";
+import { notifyTrade } from "../notify.js";
 
 function logError(msg) {
   try {
@@ -24,7 +25,7 @@ function logError(msg) {
  * @param {string} ctx.marketSlugNow
  * @param {Function} [ctx.onSold]   - called with { side, entryPrice, exitPrice, pnl, roi } after a sell
  */
-export async function processActionQueue(actionQueue, { trading, poly, rec, timeAware, marketSlugNow, onSold }) {
+export async function processActionQueue(actionQueue, { trading, poly, rec, timeAware, marketSlugNow, onSold, botLabel = "bot" }) {
   while (actionQueue.length && trading.tradingEnabled && poly.ok) {
     const action = actionQueue.shift();
     const marketUp = poly.prices.up;
@@ -54,6 +55,7 @@ export async function processActionQueue(actionQueue, { trading, poly, rec, time
         const orderId = result.order?.orderID ?? result.order?.id ?? "-";
         const balanceStr = balance > 0 ? `shares: ${balance.toFixed(2)}` : "saldo 0 (ordem não preenchida?)";
         setStatusMessage(`COMPROU ${side} @ ${(entryRef * 100).toFixed(1)}¢ | $${trading.tradeAmount} | ${balanceStr} | ID: ${String(orderId).slice(0, 12)}`, 8000);
+        notifyTrade({ bot: botLabel, isLive: true, action: "BUY", side, market: marketSlugNow, entryPrice: entryRef, invested: trading.tradeAmount });
       } else {
         const errMsg = `Erro na compra: ${result.error}`;
         setStatusMessage(errMsg, 15000);
@@ -79,6 +81,7 @@ export async function processActionQueue(actionQueue, { trading, poly, rec, time
         const roi = (pnl / pos.invested) * 100;
         const sign = pnl >= 0 ? "+" : "";
         setStatusMessage(`VENDEU ${pos.side} | P&L: ${sign}$${pnl.toFixed(2)}`, 8000);
+        notifyTrade({ bot: botLabel, isLive: true, action: "SELL", side: pos.side, market: marketSlugNow, entryPrice: pos.entryPrice, exitPrice, roi, pnl, reason: "MANUAL" });
         recordSell();
         onSold?.({ side: pos.side, entryPrice: pos.entryPrice, exitPrice, pnl, roi });
       } else {

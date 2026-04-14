@@ -4,7 +4,8 @@ services:
     container_name: polymarket-bot-15m
     restart: unless-stopped
     env_file: .env
-    command: node src/index.js
+    command: node --max-old-space-size=384 src/index.js
+    mem_limit: 512m
     volumes:
       - ./logs:/app/logs
     logging:
@@ -18,7 +19,8 @@ services:
     container_name: polymarket-bot-5m
     restart: unless-stopped
     env_file: .env
-    command: node src/index5m.js
+    command: node --max-old-space-size=384 src/index5m.js
+    mem_limit: 512m
     volumes:
       - ./logs:/app/logs
     logging:

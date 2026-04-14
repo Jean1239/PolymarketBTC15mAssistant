@@ -21,6 +21,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ensureDir } from "./utils.js";
+import { notifyTrade } from "./notify.js";
 
 // ── Headers ─────────────────────────────────────────────────────────────────
 
@@ -124,7 +125,7 @@ function evaluateSimExit({ pos, modelUp, modelDown, currentMarketPrice, timeLeft
 
 // ── Simulator core ──────────────────────────────────────────────────────────
 
-function createSimulator(csvPath, header, config) {
+function createSimulator(csvPath, header, config, label = "bot") {
   const tradesPath = csvPath.replace(/\.csv$/, "_trades.csv");
 
   let currentSlug = null;
@@ -186,6 +187,13 @@ function createSimulator(csvPath, header, config) {
     if (pnl >= 0) wins += 1; else losses += 1;
     recentTrades.unshift({ side: pos.side, pnl, roi: roiPct, ts: exitTime, reason });
     if (recentTrades.length > 10) recentTrades.pop();
+
+    notifyTrade({
+      bot: label, isLive: false, action: "SELL",
+      side: pos.side, market: pos.marketSlug,
+      entryPrice: pos.entryPrice, exitPrice,
+      roi: roiPct, pnl, cumPnl: cumulativePnl, reason,
+    });
   }
 
   function _settlePosition() {
@@ -349,6 +357,12 @@ function createSimulator(csvPath, header, config) {
         simEntryPrice = fmt(entryMktPrice, 4);
         simCurrentPrice = fmt(entryMktPrice, 4);
         simRoiPct = "0.00";
+
+        notifyTrade({
+          bot: label, isLive: false, action: "BUY",
+          side: rec.side, market: slug,
+          entryPrice: entryMktPrice, invested: config.tradeAmount,
+        });
       }
     }
 
@@ -409,7 +423,7 @@ export function createDryRunSimulator15m(csvPath, tradingConfig = {}) {
     flipCooldownS: tradingConfig.flipCooldownS ?? 60,
     flipConfirmTicks: tradingConfig.flipConfirmTicks ?? 2,
   };
-  return createSimulator(csvPath, HEADER_15M, config);
+  return createSimulator(csvPath, HEADER_15M, config, "15m");
 }
 
 /**
@@ -428,5 +442,5 @@ export function createDryRunSimulator5m(csvPath, tradingConfig = {}) {
     flipCooldownS: tradingConfig.flipCooldownS ?? 90,
     flipConfirmTicks: tradingConfig.flipConfirmTicks ?? 5,
   };
-  return createSimulator(csvPath, HEADER_5M, config);
+  return createSimulator(csvPath, HEADER_5M, config, "5m");
 }
