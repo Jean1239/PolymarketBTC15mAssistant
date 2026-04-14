@@ -35,8 +35,8 @@ export const CONFIG = {
     stopLossPct: Number(process.env.TRADE_STOP_LOSS_PCT || "25"),        // vender ao atingir -25% ROI
     signalFlipMinProb: Number(process.env.TRADE_SIGNAL_FLIP_PROB || "0.58"), // prob oposta que indica inversão
     // Stop-loss guards: require higher conviction + minimum hold time before stopping out
-    stopLossMinProb: Number(process.env.TRADE_SL_MIN_PROB || "0.58"),          // min opposite prob to trigger SL
-    stopLossMinDurationS: Number(process.env.TRADE_SL_MIN_DURATION_S || "0"),  // seconds position must age before SL fires
+    stopLossMinProb: Number(process.env.TRADE_SL_MIN_PROB || "0.65"),            // min opposite prob to trigger SL
+    stopLossMinDurationS: Number(process.env.TRADE_SL_MIN_DURATION_S || "120"),  // seconds position must age before SL fires
     // Cooldown after a SIGNAL_FLIP before re-entering the same market
     flipCooldownS: Number(process.env.TRADE_FLIP_COOLDOWN_S || "60"),
     // Consecutive ticks model must confirm reversal before SIGNAL_FLIP fires

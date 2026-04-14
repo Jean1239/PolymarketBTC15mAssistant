@@ -99,10 +99,11 @@ Called once at startup via `applyGlobalProxyFromEnv()`. Reads `HTTPS_PROXY`/`HTT
 | `DRY_RUN` | `false` | Set to `true` to run in paper-trading-only mode (no real orders, no redemption, even if private key is set) |
 | `TRADE_TAKE_PROFIT_PCT` | `20` | ROI % to recommend take-profit (requires model reversal) |
 | `TRADE_STOP_LOSS_PCT` | `25` | ROI % loss to recommend stop-loss (requires model reversal) |
-| `TRADE_SIGNAL_FLIP_PROB` | `0.58` | Min opposite-side probability to consider model reversed |
-| `TRADE_SL_MIN_PROB` | `0.58` (15m) / `0.65` (5m) | Min opposite-side probability specifically to trigger stop-loss (can be stricter than flip prob) |
-| `TRADE_SL_MIN_DURATION_S` | `0` (15m) / `120` (5m) | Minimum seconds a position must be held before stop-loss can fire |
+| `TRADE_SIGNAL_FLIP_PROB` | `0.58` (15m) / `0.62` (5m) | Min opposite-side probability to consider model reversed |
+| `TRADE_SL_MIN_PROB` | `0.65` | Min opposite-side probability specifically to trigger stop-loss (can be stricter than flip prob) |
+| `TRADE_SL_MIN_DURATION_S` | `120` | Minimum seconds a position must be held before stop-loss can fire |
 | `TRADE_FLIP_COOLDOWN_S` | `60` (15m) / `90` (5m) | Seconds to wait after a SIGNAL_FLIP before re-entering the same market |
+| `TRADE_FLIP_CONFIRM_TICKS` | `2` (15m) / `5` (5m) | Consecutive confirming ticks required before SIGNAL_FLIP exit fires |
 
 ## Output
 
@@ -144,7 +145,9 @@ After selling, the simulator can re-enter on a new signal within the same market
 
 **Post-flip cooldown:** after a `SIGNAL_FLIP` exit the simulator will not open a new position for `flipCooldownS` seconds (60s on 15m, 90s on 5m). The cooldown resets when a new market starts.
 
-**Stop-loss guards:** the 5m simulator uses `stopLossMinProb = 0.65` (stricter than the base `signalFlipMinProb = 0.58`) and `stopLossMinDurationS = 120` to avoid being stopped out in the first ~2 minutes of a volatile move. Dry-run analysis showed 85 stops averaging only 79 seconds, despite an 86% settled win rate — most would have recovered if held longer.
+**Stop-loss guards:** both simulators use `stopLossMinProb = 0.65` (stricter than the `signalFlipMinProb` gate) and `stopLossMinDurationS = 120` to avoid being stopped out in the first ~2 minutes of a volatile move. Earlier 5m dry-run analysis showed stops averaging only 79 seconds despite an 86% settled win rate — most would have recovered if held longer. A later 5-day run on 15m confirmed the same pattern (21 stops, 0 wins, −$10), so the 5m guards were ported to the 15m base config.
+
+**Signal-flip guards (5m):** the 5m simulator raises `signalFlipMinProb` to `0.62` (vs `0.58` on 15m) and `flipConfirmTicks` to `5`. A 5-day dry-run showed 158 SIGNAL_FLIP exits with only 3.8% winning — the lower threshold was catching transient blips across 0.58 that then reverted, cutting positions that would have settled as wins (settled-only win rate is 92.8%). Higher conviction + longer confirmation persistence filters those blips.
 
 **Output files:**
 

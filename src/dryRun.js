@@ -404,8 +404,8 @@ export function createDryRunSimulator15m(csvPath, tradingConfig = {}) {
     takeProfitPct: tradingConfig.takeProfitPct ?? 20,
     stopLossPct: tradingConfig.stopLossPct ?? 25,
     signalFlipMinProb: tradingConfig.signalFlipMinProb ?? 0.58,
-    stopLossMinProb: tradingConfig.stopLossMinProb ?? null,
-    stopLossMinDurationS: tradingConfig.stopLossMinDurationS ?? 0,
+    stopLossMinProb: tradingConfig.stopLossMinProb ?? 0.65,
+    stopLossMinDurationS: tradingConfig.stopLossMinDurationS ?? 120,
     flipCooldownS: tradingConfig.flipCooldownS ?? 60,
     flipConfirmTicks: tradingConfig.flipConfirmTicks ?? 2,
   };
@@ -422,11 +422,11 @@ export function createDryRunSimulator5m(csvPath, tradingConfig = {}) {
     tradeAmount: tradingConfig.tradeAmount ?? 5,
     takeProfitPct: tradingConfig.takeProfitPct ?? 20,
     stopLossPct: tradingConfig.stopLossPct ?? 25,
-    signalFlipMinProb: tradingConfig.signalFlipMinProb ?? 0.58,
+    signalFlipMinProb: tradingConfig.signalFlipMinProb ?? 0.62,
     stopLossMinProb: tradingConfig.stopLossMinProb ?? 0.65,
     stopLossMinDurationS: tradingConfig.stopLossMinDurationS ?? 120,
     flipCooldownS: tradingConfig.flipCooldownS ?? 90,
-    flipConfirmTicks: tradingConfig.flipConfirmTicks ?? 3,
+    flipConfirmTicks: tradingConfig.flipConfirmTicks ?? 5,
   };
   return createSimulator(csvPath, HEADER_5M, config);
 }
