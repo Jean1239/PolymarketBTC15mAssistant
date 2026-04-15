@@ -289,7 +289,7 @@ async function main() {
       const clLine   = colorPriceLine({ label: "", price: currentPrice, prevPrice: prevCurrentPrice, decimals: 2, prefix: "$" });
       const ptbDelta = currentPrice !== null && priceToBeat !== null ? currentPrice - priceToBeat : null;
       const ptbStr   = ptbDelta === null ? ""
-        : ` (${ptbDelta > 0 ? ANSI.green + "+" : ptbDelta < 0 ? ANSI.red : ANSI.gray}$${Math.abs(ptbDelta).toFixed(2)}${ANSI.reset})`;
+        : ` (${ptbDelta > 0 ? ANSI.green + "+" : ptbDelta < 0 ? ANSI.red + "-" : ANSI.gray}$${Math.abs(ptbDelta).toFixed(2)}${ANSI.reset})`;
 
       const shortcutsHint = trading.tradingEnabled && !keyboard.stdinError
         ? `${ANSI.dim}[B]${ANSI.reset} Comprar  ${ANSI.dim}[S]${ANSI.reset} Vender  ${ANSI.dim}[Q]${ANSI.reset} Sair`

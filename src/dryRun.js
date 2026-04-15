@@ -110,7 +110,7 @@ function evaluateSimExit({ pos, modelUp, modelDown, currentMarketPrice, timeLeft
   }
 
   // Signal flipped with enough conviction
-  if (modelConfirmsReversal) {
+  if (!config.disableSignalFlip && modelConfirmsReversal) {
     return { shouldSell: true, reason: "SIGNAL_FLIP", roiPct };
   }
 
@@ -193,6 +193,7 @@ function createSimulator(csvPath, header, config, label = "bot") {
       side: pos.side, market: pos.marketSlug,
       entryPrice: pos.entryPrice, exitPrice,
       roi: roiPct, pnl, cumPnl: cumulativePnl, reason,
+      totalTrades, wins, losses,
     });
   }
 
@@ -441,6 +442,7 @@ export function createDryRunSimulator5m(csvPath, tradingConfig = {}) {
     stopLossMinDurationS: tradingConfig.stopLossMinDurationS ?? 120,
     flipCooldownS: tradingConfig.flipCooldownS ?? 90,
     flipConfirmTicks: tradingConfig.flipConfirmTicks ?? 5,
+    disableSignalFlip: tradingConfig.disableSignalFlip ?? true,
   };
   return createSimulator(csvPath, HEADER_5M, config, "5m");
 }

@@ -34,6 +34,20 @@ export function notify(text) {
   _send(text);
 }
 
+/** Format a dollar value with explicit + or - sign. */
+function fmtSignedUsd(v) {
+  if (v == null || Number.isNaN(v)) return "-";
+  const sign = v >= 0 ? "+" : "-";
+  return `${sign}$${Math.abs(Number(v)).toFixed(2)}`;
+}
+
+/** Format a percentage with explicit + or - sign. */
+function fmtSignedPct(v) {
+  if (v == null || Number.isNaN(v)) return "-";
+  const sign = v >= 0 ? "+" : "-";
+  return `${sign}${Math.abs(Number(v)).toFixed(1)}%`;
+}
+
 /**
  * Notify a simulated or real trade event (BUY or SELL/settlement).
  *
@@ -50,9 +64,13 @@ export function notify(text) {
  * @param {number}  [p.cumPnl]    - cumulative PNL after this trade (SELL only)
  * @param {string}  [p.reason]    - exit reason (SELL only)
  * @param {number}  [p.invested]  - amount invested (BUY only)
+ * @param {number}  [p.totalTrades] - total trades so far (SELL only)
+ * @param {number}  [p.wins]      - total wins so far (SELL only)
+ * @param {number}  [p.losses]    - total losses so far (SELL only)
  */
 export function notifyTrade({ bot, isLive, action, side, market, entryPrice,
-                              exitPrice, roi, pnl, cumPnl, reason, invested }) {
+                              exitPrice, roi, pnl, cumPnl, reason, invested,
+                              totalTrades, wins, losses }) {
   const mode   = isLive ? "LIVE" : "SIM";
   const slug   = String(market ?? "").slice(-16); // keep last 16 chars to stay compact
   const sideArrow = side === "UP" ? "↑ UP" : "↓ DOWN";
@@ -78,16 +96,26 @@ export function notifyTrade({ bot, isLive, action, side, market, entryPrice,
 
     const ep   = entryPrice != null ? `${(entryPrice * 100).toFixed(1)}¢` : "-";
     const xp   = exitPrice  != null ? `${(exitPrice  * 100).toFixed(1)}¢` : "-";
-    const roiStr  = roi  != null ? `${roi  >= 0 ? "+" : ""}${Number(roi).toFixed(1)}%` : "-";
-    const pnlStr  = pnl  != null ? `${pnl  >= 0 ? "+" : ""}$${Math.abs(pnl).toFixed(2)}` : "-";
-    const cumStr  = cumPnl != null ? `${cumPnl >= 0 ? "+" : ""}$${Number(cumPnl).toFixed(2)}` : null;
 
-    text = [
+    const roiStr  = fmtSignedPct(roi);
+    const pnlStr  = fmtSignedUsd(pnl);
+    const cumStr  = cumPnl != null ? fmtSignedUsd(cumPnl) : null;
+
+    const lines = [
       `${icon} <b>[${bot}·${mode}] SELL — ${reason ?? "MANUAL"}</b>`,
       `${sideArrow}: ${ep} → ${xp}`,
-      `ROI: <b>${roiStr}</b> | PNL: ${pnlStr}`,
-      cumStr ? `Acum: ${cumStr}` : null,
-    ].filter(Boolean).join("\n");
+      `ROI: <b>${roiStr}</b> | PNL: <b>${pnlStr}</b>`,
+    ];
+
+    if (totalTrades != null) {
+      const w = wins ?? 0;
+      const l = losses ?? 0;
+      const wr = totalTrades > 0 ? `${((w / totalTrades) * 100).toFixed(0)}%` : "-";
+      lines.push(`Trades: ${totalTrades} | W:${w} L:${l} | WR: ${wr}`);
+    }
+    if (cumStr) lines.push(`Acum: <b>${cumStr}</b>`);
+
+    text = lines.join("\n");
   }
 
   _send(text);
@@ -107,10 +135,9 @@ export function notifyStart(bot) {
 export function notifyDailySummary(bot, stats) {
   const { wins, losses, totalTrades, cumulativePnl } = stats;
   const wr  = totalTrades > 0 ? `${((wins / totalTrades) * 100).toFixed(0)}%` : "-";
-  const cum = `${cumulativePnl >= 0 ? "+" : ""}$${Number(cumulativePnl).toFixed(2)}`;
   _send([
     `📋 <b>[${bot}·SIM] Resumo do dia</b>`,
     `Trades: ${totalTrades} | W:${wins} L:${losses} | WR: ${wr}`,
-    `PNL acumulado: <b>${cum}</b>`,
+    `PNL acumulado: <b>${fmtSignedUsd(cumulativePnl)}</b>`,
   ].join("\n"));
 }
