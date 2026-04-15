@@ -258,7 +258,7 @@ function createSimulator(csvPath, header, config, label = "bot") {
    * @param {number|null} timeLeftMin - minutes remaining in the market
    * @param {Array}       dataValues  - indicator CSV columns (everything before sim columns)
    */
-  function tick({ slug, priceToBeat, btcPrice, rec, modelUp, modelDown, marketUp, marketDown, timeLeftMin, dataValues }) {
+  function tick({ slug, priceToBeat, btcPrice, rec, modelUp, modelDown, marketUp, marketDown, timeLeftMin, dataValues, sawMarketStart = true }) {
     // ── Market changed → settle open position and flush buffer ──────────
     if (slug !== currentSlug && currentSlug !== null) {
       _settlePosition();
@@ -333,8 +333,8 @@ function createSimulator(csvPath, header, config, label = "bot") {
         simCurrentPrice = currentMktPrice != null ? fmt(currentMktPrice, 4) : "";
         simRoiPct = exitEval.roiPct != null ? fmt(exitEval.roiPct, 2) : "";
       }
-    } else if (rec.action === "ENTER" && rec.side) {
-      // ── BUY — skip if still within post-flip cooldown ─────────────────
+    } else if (rec.action === "ENTER" && rec.side && sawMarketStart) {
+      // ── BUY — skip if late start or still within post-flip cooldown ────
       const inCooldown = flipCooldownMs > 0 && lastFlipTime !== null &&
         (Date.now() - lastFlipTime) < flipCooldownMs;
 

@@ -25,13 +25,17 @@ function logError(msg) {
  * @param {string} ctx.marketSlugNow
  * @param {Function} [ctx.onSold]   - called with { side, entryPrice, exitPrice, pnl, roi } after a sell
  */
-export async function processActionQueue(actionQueue, { trading, poly, rec, timeAware, marketSlugNow, onSold, botLabel = "bot" }) {
+export async function processActionQueue(actionQueue, { trading, poly, rec, timeAware, marketSlugNow, onSold, botLabel = "bot", sawMarketStart = true }) {
   while (actionQueue.length && trading.tradingEnabled && poly.ok) {
     const action = actionQueue.shift();
     const marketUp = poly.prices.up;
     const marketDown = poly.prices.down;
 
     if (action.type === "buy") {
+      if (!sawMarketStart) {
+        setStatusMessage("Late start — aguardando próximo mercado para entrar", 5000);
+        continue;
+      }
       const pos = getPosition();
       if (pos.active) {
         setStatusMessage("Já existe posição aberta");

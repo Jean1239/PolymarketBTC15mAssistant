@@ -86,6 +86,10 @@ async function main() {
   const dryRun = createDryRunSimulator5m("./logs/dryrun_5m.csv", CONFIG.trading);
   process.on("exit", () => dryRun.flushNow());
 
+  // Late-start guard: skip entering positions on markets the bot didn't see from open
+  const BOT_START_MS = Date.now();
+  const LATE_START_GRACE_MS = 90_000; // 90s grace window
+
   let signalCooldown = { side: null, ts: 0, slug: null };
   let prevSpotPrice    = null;
   let prevCurrentPrice = null;
@@ -170,6 +174,11 @@ async function main() {
       // ── Trading ───────────────────────────────────────────────────────────
       const marketSlugNow   = poly.ok ? String(poly.market?.slug ?? "") : "";
       const conditionIdNow  = poly.ok ? (poly.market?.conditionId ?? null) : null;
+      const marketStartMsNow = poly.ok && poly.market?.eventStartTime
+        ? new Date(poly.market.eventStartTime).getTime()
+        : null;
+      // Bot must have been running within LATE_START_GRACE_MS of market open to enter
+      const sawMarketStart  = marketStartMsNow === null || BOT_START_MS <= marketStartMsNow + LATE_START_GRACE_MS;
 
       // On market change: redeem any settled tokens from the previous market
       if (marketSlugNow && marketSlugNow !== prevMarketSlug && prevConditionId && trading.tradingEnabled) {
@@ -194,7 +203,7 @@ async function main() {
       }
       resetIfMarketChanged(marketSlugNow);
 
-      await processActionQueue(keyboard.actionQueue, { trading, poly, rec, timeAware, marketSlugNow, botLabel: "5m" });
+      await processActionQueue(keyboard.actionQueue, { trading, poly, rec, timeAware, marketSlugNow, botLabel: "5m", sawMarketStart });
 
       if (trading.tradingEnabled && Date.now() - usdcLastFetchMs > 30_000) {
         usdcLastFetchMs = Date.now();
@@ -207,12 +216,9 @@ async function main() {
       const spotPrice    = wsPrice ?? lastPrice;
       const currentPrice = chainlink?.price ?? null;
       const marketSlug   = poly.ok ? String(poly.market?.slug ?? "") : "";
-      const marketStartMs = poly.ok && poly.market?.eventStartTime
-        ? new Date(poly.market.eventStartTime).getTime()
-        : null;
       const settlementMs5m = poly.ok && poly.market?.endDate ? new Date(poly.market.endDate).getTime() : null;
 
-      const priceToBeat = priceLatch.update({ marketSlug, currentPrice, marketStartMs, market: poly.market ?? null });
+      const priceToBeat = priceLatch.update({ marketSlug, currentPrice, marketStartMs: marketStartMsNow, market: poly.market ?? null });
 
       const settled = tracker.update({ marketSlug, rec, marketUp, marketDown, currentPrice, priceToBeat });
       if (settled) {
@@ -277,12 +283,14 @@ async function main() {
       const delta3Narr    = narrativeFromSign(delta3m);
 
       const signal   = rec.action === "ENTER" ? (rec.side === "UP" ? "BUY UP" : "BUY DOWN") : "NO TRADE";
-      const recColor = rec.action === "ENTER" ? ANSI.green : ANSI.gray;
-      const recLabel = rec.action === "ENTER"
-        ? `\u25BA ${rec.side === "UP" ? "BUY UP" : "BUY DOWN"}  [${rec.phase}\u00B7${rec.strength}]`
-        : `NO TRADE  [${rec.phase}]`;
+      const recColor = !sawMarketStart ? ANSI.yellow : rec.action === "ENTER" ? ANSI.green : ANSI.gray;
+      const recLabel = !sawMarketStart
+        ? `AGUARD. PRÓX. MERCADO  [late start]`
+        : rec.action === "ENTER"
+          ? `\u25BA ${rec.side === "UP" ? "BUY UP" : "BUY DOWN"}  [${rec.phase}\u00B7${rec.strength}]`
+          : `NO TRADE  [${rec.phase}]`;
 
-      const isNextMarket = marketStartMs !== null && marketStartMs > Date.now();
+      const isNextMarket = marketStartMsNow !== null && marketStartMsNow > Date.now();
       const timeColor    = isNextMarket ? ANSI.yellow : timeLeftMin >= 3 ? ANSI.green : timeLeftMin >= 1.5 ? ANSI.yellow : ANSI.red;
       const liquidity    = poly.ok ? (Number(poly.market?.liquidityNum) || Number(poly.market?.liquidity) || null) : null;
 
@@ -296,8 +304,8 @@ async function main() {
         : `${ANSI.dim}[Q]${ANSI.reset} Sair`;
       const confirmHint = keyboard.getConfirmHint({ rec, timeAware, marketUp, marketDown, tradeAmount: trading.tradeAmount });
 
-      const intervalLine = (marketStartMs !== null && settlementMs5m !== null)
-        ? kv("Intervalo:", `${isNextMarket ? ANSI.yellow : ""}${fmtEtHHMM(marketStartMs)} \u2192 ${fmtEtHHMM(settlementMs5m)} ET${isNextMarket ? ANSI.reset : ""}`)
+      const intervalLine = (marketStartMsNow !== null && settlementMs5m !== null)
+        ? kv("Intervalo:", `${isNextMarket ? ANSI.yellow : ""}${fmtEtHHMM(marketStartMsNow)} \u2192 ${fmtEtHHMM(settlementMs5m)} ET${isNextMarket ? ANSI.reset : ""}`)
         : null;
 
       const simStats = dryRun.getStats();
@@ -415,6 +423,7 @@ async function main() {
           marketUp,
           marketDown,
           timeLeftMin,
+          sawMarketStart,
           dataValues: [
             new Date().toISOString(),
             marketSlugNow,

@@ -82,6 +82,10 @@ async function main() {
   const dryRun = createDryRunSimulator15m("./logs/dryrun_15m.csv", CONFIG.trading);
   process.on("exit", () => dryRun.flushNow());
 
+  // Late-start guard: skip entering positions on markets the bot didn't see from open
+  const BOT_START_MS = Date.now();
+  const LATE_START_GRACE_MS = 90_000; // 90s grace window
+
   let prevSpotPrice    = null;
   let prevCurrentPrice = null;
   let usdcBalance      = null;
@@ -166,6 +170,11 @@ async function main() {
       // ── Trading ───────────────────────────────────────────────────────────
       const marketSlugNow   = poly.ok ? String(poly.market?.slug ?? "") : "";
       const conditionIdNow  = poly.ok ? (poly.market?.conditionId ?? null) : null;
+      const marketStartMsNow = poly.ok && poly.market?.eventStartTime
+        ? new Date(poly.market.eventStartTime).getTime()
+        : null;
+      // Bot must have been running within LATE_START_GRACE_MS of market open to enter
+      const sawMarketStart  = marketStartMsNow === null || BOT_START_MS <= marketStartMsNow + LATE_START_GRACE_MS;
 
       // On market change: redeem any settled tokens from the previous market
       if (marketSlugNow && marketSlugNow !== prevMarketSlug && prevConditionId && trading.tradingEnabled) {
@@ -177,7 +186,7 @@ async function main() {
 
       resetIfMarketChanged(marketSlugNow);
 
-      await processActionQueue(keyboard.actionQueue, { trading, poly, rec, timeAware, marketSlugNow, botLabel: "15m" });
+      await processActionQueue(keyboard.actionQueue, { trading, poly, rec, timeAware, marketSlugNow, botLabel: "15m", sawMarketStart });
 
       if (trading.tradingEnabled && Date.now() - usdcLastFetchMs > 30_000) {
         usdcLastFetchMs = Date.now();
@@ -190,11 +199,8 @@ async function main() {
       const spotPrice    = wsPrice ?? lastPrice;
       const currentPrice = chainlink?.price ?? null;
       const marketSlug   = poly.ok ? String(poly.market?.slug ?? "") : "";
-      const marketStartMs = poly.ok && poly.market?.eventStartTime
-        ? new Date(poly.market.eventStartTime).getTime()
-        : null;
 
-      const priceToBeat = priceLatch.update({ marketSlug, currentPrice, marketStartMs, market: poly.market ?? null });
+      const priceToBeat = priceLatch.update({ marketSlug, currentPrice, marketStartMs: marketStartMsNow, market: poly.market ?? null });
 
       const settled = tracker.update({ marketSlug, rec, marketUp, marketDown, currentPrice, priceToBeat });
       if (settled) {
@@ -248,10 +254,12 @@ async function main() {
 
       const timeColor  = timeLeftMin >= 10 ? ANSI.green : timeLeftMin >= 5 ? ANSI.yellow : ANSI.red;
       const liquidity  = poly.ok ? (Number(poly.market?.liquidityNum) || Number(poly.market?.liquidity) || null) : null;
-      const recColor   = rec.action === "ENTER" ? ANSI.green : ANSI.gray;
-      const recLabel   = rec.action === "ENTER"
-        ? `\u25BA ${rec.side === "UP" ? "BUY UP" : "BUY DOWN"}  [${rec.phase}\u00B7${rec.strength}]`
-        : `NO TRADE  [${rec.phase}]`;
+      const recColor   = !sawMarketStart ? ANSI.yellow : rec.action === "ENTER" ? ANSI.green : ANSI.gray;
+      const recLabel   = !sawMarketStart
+        ? `AGUARD. PRÓX. MERCADO  [late start]`
+        : rec.action === "ENTER"
+          ? `\u25BA ${rec.side === "UP" ? "BUY UP" : "BUY DOWN"}  [${rec.phase}\u00B7${rec.strength}]`
+          : `NO TRADE  [${rec.phase}]`;
 
       const clLine  = colorPriceLine({ label: "", price: currentPrice, prevPrice: prevCurrentPrice, decimals: 2, prefix: "$" });
       const ptbDelta = currentPrice !== null && priceToBeat !== null ? currentPrice - priceToBeat : null;
@@ -366,6 +374,7 @@ async function main() {
           marketUp,
           marketDown,
           timeLeftMin,
+          sawMarketStart,
           dataValues: [
             new Date().toISOString(),
             marketSlugNow,
