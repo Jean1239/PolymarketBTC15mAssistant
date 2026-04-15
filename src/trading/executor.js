@@ -44,6 +44,13 @@ export async function processActionQueue(actionQueue, { trading, poly, rec, time
       const side = rec.action === "ENTER"
         ? rec.side
         : (timeAware.adjustedUp >= timeAware.adjustedDown ? "UP" : "DOWN");
+      const entryMktPriceCheck = side === "UP" ? marketUp : marketDown;
+      const minEntry = trading.entryMinMarketPrice ?? 0;
+      const maxEntry = trading.entryMaxMarketPrice ?? 1;
+      if (entryMktPriceCheck != null && (entryMktPriceCheck < minEntry || entryMktPriceCheck > maxEntry)) {
+        setStatusMessage(`Entrada bloqueada — preço ${(entryMktPriceCheck * 100).toFixed(1)}¢ fora do range [${(minEntry * 100).toFixed(0)}¢–${(maxEntry * 100).toFixed(0)}¢]`, 5000);
+        continue;
+      }
       const tokenId = side === "UP" ? poly.tokens.upTokenId : poly.tokens.downTokenId;
       const book = side === "UP" ? poly.orderbook.up : poly.orderbook.down;
       const rawAsk = book?.bestAsk ?? (side === "UP" ? marketUp : marketDown);

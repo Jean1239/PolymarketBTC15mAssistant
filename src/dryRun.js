@@ -26,6 +26,10 @@ import { fetchMarketOutcome } from "./data/polymarket.js";
 
 // ── Headers ─────────────────────────────────────────────────────────────────
 
+// Price-to-beat columns: inserted between indicator cols and sim cols.
+// Managed by the simulator from its own priceToBeat/btcPrice params.
+const PTB_COLS = ["price_to_beat", "btc_vs_ptb"];
+
 const SIM_COLS = [
   "sim_action", "sim_side", "sim_entry_price", "sim_current_price",
   "sim_roi_pct", "sim_exit_reason", "sim_pnl", "sim_cum_pnl",
@@ -49,13 +53,15 @@ const INDICATOR_COLS_5M = [
   "rsi", "ha_color", "ha_count", "vwap", "vwap_dist_pct", "vwap_slope",
 ];
 
-export const HEADER_15M = [...INDICATOR_COLS_15M, ...SIM_COLS, ...OUTCOME_COLS];
-export const HEADER_5M  = [...INDICATOR_COLS_5M,  ...SIM_COLS, ...OUTCOME_COLS];
+export const HEADER_15M = [...INDICATOR_COLS_15M, ...PTB_COLS, ...SIM_COLS, ...OUTCOME_COLS];
+export const HEADER_5M  = [...INDICATOR_COLS_5M,  ...PTB_COLS, ...SIM_COLS, ...OUTCOME_COLS];
 
 const TRADE_JOURNAL_HEADER = [
   "entry_time", "exit_time", "market_slug", "side",
   "entry_price", "exit_price", "shares", "invested",
   "exit_value", "pnl", "roi_pct", "exit_reason", "duration_s",
+  "ptb_at_entry", "btc_at_entry", "btc_vs_ptb_at_entry",
+  "market_up_at_entry", "market_down_at_entry",
 ];
 
 // ── CSV helpers ─────────────────────────────────────────────────────────────
@@ -143,7 +149,8 @@ function createSimulator(csvPath, header, config, label = "bot") {
   let buffer = []; // { dataValues[], simCols[] }[]
 
   // Virtual position
-  let pos = { active: false, side: null, entryPrice: 0, shares: 0, invested: 0, marketSlug: null, entryTime: null };
+  let pos = { active: false, side: null, entryPrice: 0, shares: 0, invested: 0, marketSlug: null, entryTime: null,
+              ptbAtEntry: null, btcAtEntry: null, marketUpAtEntry: null, marketDownAtEntry: null };
   let cumulativePnl = 0;
 
   // Trade stats
@@ -161,7 +168,8 @@ function createSimulator(csvPath, header, config, label = "bot") {
   const flipConfirmTicks = config.flipConfirmTicks ?? 1;
 
   function _resetPos() {
-    pos = { active: false, side: null, entryPrice: 0, shares: 0, invested: 0, marketSlug: null, entryTime: null };
+    pos = { active: false, side: null, entryPrice: 0, shares: 0, invested: 0, marketSlug: null, entryTime: null,
+            ptbAtEntry: null, btcAtEntry: null, marketUpAtEntry: null, marketDownAtEntry: null };
   }
 
   function _ensureHeader(filePath, headerRow) {
@@ -174,6 +182,9 @@ function createSimulator(csvPath, header, config, label = "bot") {
   function _logTrade({ exitPrice, exitValue, pnl, roiPct, reason, exitTime }) {
     _ensureHeader(tradesPath, TRADE_JOURNAL_HEADER);
     const durationS = pos.entryTime ? Math.round((exitTime - pos.entryTime) / 1000) : "";
+    const btcVsPtbAtEntry = (pos.btcAtEntry != null && pos.ptbAtEntry != null)
+      ? pos.btcAtEntry - pos.ptbAtEntry
+      : null;
     const row = toCsvLine([
       pos.entryTime ? new Date(pos.entryTime).toISOString() : "",
       new Date(exitTime).toISOString(),
@@ -188,6 +199,11 @@ function createSimulator(csvPath, header, config, label = "bot") {
       fmt(roiPct, 2),
       reason,
       durationS,
+      fmt(pos.ptbAtEntry, 2),
+      fmt(pos.btcAtEntry, 2),
+      fmt(btcVsPtbAtEntry, 2),
+      fmt(pos.marketUpAtEntry, 4),
+      fmt(pos.marketDownAtEntry, 4),
     ]);
     fs.appendFileSync(tradesPath, row + "\n", "utf8");
 
@@ -244,9 +260,10 @@ function createSimulator(csvPath, header, config, label = "bot") {
     const canCompute = ptb !== null && btcFinal !== null;
     const outcome = canCompute ? (btcFinal > ptb ? "UP" : "DOWN") : null;
 
-    const lines = buffer.map(({ dataValues, simCols }) => {
+    const lines = buffer.map(({ dataValues, ptbCols, simCols }) => {
       return toCsvLine([
         ...dataValues,
+        ...ptbCols,
         ...simCols,
         outcome ?? "",
         btcFinal !== null ? fmt(btcFinal, 2) : "",
@@ -283,6 +300,10 @@ function createSimulator(csvPath, header, config, label = "bot") {
     currentSlug = slug;
     if (priceToBeat !== null) lastPriceToBeat = priceToBeat;
     if (btcPrice !== null) lastBtcPrice = btcPrice;
+
+    // Capture ptb cols for this tick (used in buffer)
+    const tickPtb = lastPriceToBeat;
+    const tickBtcVsPtb = (lastBtcPrice != null && tickPtb != null) ? lastBtcPrice - tickPtb : null;
 
     // ── Simulation logic ────────────────────────────────────────────────
     let simAction = "WAIT";
@@ -354,7 +375,13 @@ function createSimulator(csvPath, header, config, label = "bot") {
         (Date.now() - lastFlipTime) < flipCooldownMs;
 
       const entryMktPrice = !inCooldown ? (rec.side === "UP" ? marketUp : marketDown) : null;
-      if (entryMktPrice != null && entryMktPrice > 0) {
+
+      // Entry price filter: skip if market price of entry side is outside allowed range
+      const minEntry = config.entryMinMarketPrice ?? 0;
+      const maxEntry = config.entryMaxMarketPrice ?? 1;
+      const priceAllowed = entryMktPrice != null && entryMktPrice >= minEntry && entryMktPrice <= maxEntry;
+
+      if (priceAllowed && entryMktPrice > 0) {
         const shares = config.tradeAmount / entryMktPrice;
         pos = {
           active: true,
@@ -364,6 +391,10 @@ function createSimulator(csvPath, header, config, label = "bot") {
           invested: config.tradeAmount,
           marketSlug: slug,
           entryTime: Date.now(),
+          ptbAtEntry: tickPtb,
+          btcAtEntry: lastBtcPrice,
+          marketUpAtEntry: marketUp ?? null,
+          marketDownAtEntry: marketDown ?? null,
         };
 
         flipConfirmCount = 0;
@@ -393,7 +424,7 @@ function createSimulator(csvPath, header, config, label = "bot") {
       fmt(cumulativePnl, 4),
     ];
 
-    buffer.push({ dataValues, simCols });
+    buffer.push({ dataValues, ptbCols: [fmt(tickPtb, 2), fmt(tickBtcVsPtb, 2)], simCols });
   }
 
   /** Flush current buffer immediately (call on process exit). */
@@ -438,6 +469,8 @@ export function createDryRunSimulator15m(csvPath, tradingConfig = {}) {
     stopLossMinDurationS: tradingConfig.stopLossMinDurationS ?? 120,
     flipCooldownS: tradingConfig.flipCooldownS ?? 60,
     flipConfirmTicks: tradingConfig.flipConfirmTicks ?? 2,
+    entryMinMarketPrice: tradingConfig.entryMinMarketPrice ?? 0,
+    entryMaxMarketPrice: tradingConfig.entryMaxMarketPrice ?? 1,
   };
   return createSimulator(csvPath, HEADER_15M, config, "15m");
 }
@@ -458,6 +491,8 @@ export function createDryRunSimulator5m(csvPath, tradingConfig = {}) {
     flipCooldownS: tradingConfig.flipCooldownS ?? 90,
     flipConfirmTicks: tradingConfig.flipConfirmTicks ?? 5,
     disableSignalFlip: tradingConfig.disableSignalFlip ?? true,
+    entryMinMarketPrice: tradingConfig.entryMinMarketPrice ?? 0,
+    entryMaxMarketPrice: tradingConfig.entryMaxMarketPrice ?? 1,
   };
   return createSimulator(csvPath, HEADER_5M, config, "5m");
 }

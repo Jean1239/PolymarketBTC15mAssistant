@@ -40,6 +40,11 @@ export const CONFIG = {
     // PTB safety guard: suppress SL/SIGNAL_FLIP exits when BTC is this many USD
     // on the winning side of the price-to-beat. Absorbs ~$9 ptb drift + buffer.
     ptbSafeMarginUsd: Number(process.env.TRADE_PTB_SAFE_MARGIN_USD || "30"),
+    // Entry price filter: only enter if the market price of the chosen side is
+    // within [entryMinMarketPrice, entryMaxMarketPrice]. Default 0–1 (disabled).
+    // Example: min=0.40, max=0.80 blocks entries when too far against/with market.
+    entryMinMarketPrice: Number(process.env.TRADE_ENTRY_MIN_PRICE || "0"),
+    entryMaxMarketPrice: Number(process.env.TRADE_ENTRY_MAX_PRICE || "1"),
     // Cooldown after a SIGNAL_FLIP before re-entering the same market
     flipCooldownS: Number(process.env.TRADE_FLIP_COOLDOWN_S || "60"),
     // Consecutive ticks model must confirm reversal before SIGNAL_FLIP fires
