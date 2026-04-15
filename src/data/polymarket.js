@@ -130,6 +130,35 @@ export async function fetchMarketBySlug(slug) {
   return market;
 }
 
+/**
+ * Fetch the definitive outcome of a resolved market.
+ * Reads outcomePrices from the Gamma API for the given slug.
+ *
+ * Returns "UP" if the Up token resolved to $1,
+ *         "DOWN" if the Down token resolved to $1,
+ *         null if the market is not yet resolved or the fetch failed.
+ */
+export async function fetchMarketOutcome(slug) {
+  try {
+    const market = await fetchMarketBySlug(slug);
+    if (!market) return null;
+    const outcomes = Array.isArray(market.outcomes)
+      ? market.outcomes
+      : (typeof market.outcomes === "string" ? JSON.parse(market.outcomes) : []);
+    const outcomePrices = Array.isArray(market.outcomePrices)
+      ? market.outcomePrices
+      : (typeof market.outcomePrices === "string" ? JSON.parse(market.outcomePrices) : []);
+    const upIndex = outcomes.findIndex((o) => String(o).toLowerCase() === "up");
+    if (upIndex < 0) return null;
+    const upPrice = Number(outcomePrices[upIndex]);
+    if (upPrice >= 0.99) return "UP";
+    if (upPrice <= 0.01) return "DOWN";
+    return null; // market not fully resolved yet
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchMarketsBySeriesSlug({ seriesSlug, limit = 50 }) {
   const url = new URL("/markets", CONFIG.gammaBaseUrl);
   url.searchParams.set("seriesSlug", seriesSlug);

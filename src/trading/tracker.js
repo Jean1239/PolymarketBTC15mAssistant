@@ -10,9 +10,11 @@
  * Usage:
  *   const tracker = createTradeTracker();
  *   // inside the poll loop:
- *   const settled = tracker.update({ marketSlug, rec, marketUp, marketDown, currentPrice, priceToBeat });
+ *   const settled = await tracker.update({ marketSlug, rec, marketUp, marketDown, currentPrice, priceToBeat });
  *   if (settled) appendCsvRow(..., buildSettledRow(settled));
  */
+import { fetchMarketOutcome } from "../data/polymarket.js";
+
 export function createTradeTracker() {
   let tradeState = {
     slug: null,
@@ -34,24 +36,30 @@ export function createTradeTracker() {
    * @param {number|null} ctx.currentPrice - live Chainlink price
    * @param {number|null} ctx.priceToBeat
    *
-   * @returns {{ slug, side, won, pnl, ts } | null}  settled outcome, or null
+   * @returns {Promise<{ slug, side, won, pnl, ts } | null>}  settled outcome, or null
    */
-  function update({ marketSlug, rec, marketUp, marketDown, currentPrice, priceToBeat }) {
+  async function update({ marketSlug, rec, marketUp, marketDown, currentPrice, priceToBeat }) {
     let settled = null;
 
     if (tradeState.slug !== null && tradeState.slug !== "" && marketSlug !== tradeState.slug) {
       // Market changed — evaluate the previous market's outcome
-      if (tradeState.hasSignal && tradeState.priceToBeat !== null && tradeState.lastChainlinkPrice !== null) {
-        const winner = tradeState.lastChainlinkPrice > tradeState.priceToBeat ? "UP" : "DOWN";
-        const won = tradeState.side === winner;
-        const ep = tradeState.entryMarketPrice ?? 0.5;
-        const pnl = won ? (1 / ep) - 1 : -1;
-        if (won) runningStats.wins += 1; else runningStats.losses += 1;
-        runningStats.totalPnl += pnl;
-        const outcome = { slug: tradeState.slug, side: tradeState.side, won, pnl, ts: new Date().toISOString() };
-        recentOutcomes.unshift(outcome);
-        if (recentOutcomes.length > 10) recentOutcomes.pop();
-        settled = outcome;
+      if (tradeState.hasSignal) {
+        // Prefer definitive outcome from Polymarket API (outcomePrices); fall back to ptb
+        let winner = await fetchMarketOutcome(tradeState.slug).catch(() => null);
+        if (winner === null && tradeState.priceToBeat !== null && tradeState.lastChainlinkPrice !== null) {
+          winner = tradeState.lastChainlinkPrice > tradeState.priceToBeat ? "UP" : "DOWN";
+        }
+        if (winner !== null) {
+          const won = tradeState.side === winner;
+          const ep = tradeState.entryMarketPrice ?? 0.5;
+          const pnl = won ? (1 / ep) - 1 : -1;
+          if (won) runningStats.wins += 1; else runningStats.losses += 1;
+          runningStats.totalPnl += pnl;
+          const outcome = { slug: tradeState.slug, side: tradeState.side, won, pnl, ts: new Date().toISOString() };
+          recentOutcomes.unshift(outcome);
+          if (recentOutcomes.length > 10) recentOutcomes.pop();
+          settled = outcome;
+        }
       }
       tradeState = {
         slug: marketSlug,

@@ -22,6 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { ensureDir } from "./utils.js";
 import { notifyTrade } from "./notify.js";
+import { fetchMarketOutcome } from "./data/polymarket.js";
 
 // ── Headers ─────────────────────────────────────────────────────────────────
 
@@ -79,7 +80,7 @@ function fmt(v, decimals = 4) {
 
 // ── Exit evaluation (inlined to avoid position.js module-level side effects) ─
 
-function evaluateSimExit({ pos, modelUp, modelDown, currentMarketPrice, timeLeftMin, config }) {
+function evaluateSimExit({ pos, modelUp, modelDown, currentMarketPrice, timeLeftMin, config, btcPrice = null, priceToBeat = null }) {
   if (!pos.active || currentMarketPrice == null) {
     return { shouldSell: false, reason: null, roiPct: null };
   }
@@ -93,6 +94,14 @@ function evaluateSimExit({ pos, modelUp, modelDown, currentMarketPrice, timeLeft
     : null;
   const modelConfirmsReversal = oppositeProb != null && oppositeProb >= config.signalFlipMinProb;
 
+  // PTB safety guard: if BTC is safely on the winning side of the price-to-beat,
+  // suppress SL/SIGNAL_FLIP/TIME_DECAY — the position is likely to settle as a win.
+  const ptbSafeMarginUsd = config.ptbSafeMarginUsd ?? 30;
+  const ptbMargin = (btcPrice != null && priceToBeat != null)
+    ? (pos.side === "UP" ? btcPrice - priceToBeat : priceToBeat - btcPrice)
+    : null;
+  const ptbSafe = ptbMargin !== null && ptbMargin >= ptbSafeMarginUsd;
+
   // Stop-loss guards: higher prob threshold + minimum hold time
   const slMinProb = config.stopLossMinProb ?? config.signalFlipMinProb;
   const slConfirmed = oppositeProb != null && oppositeProb >= slMinProb;
@@ -104,19 +113,19 @@ function evaluateSimExit({ pos, modelUp, modelDown, currentMarketPrice, timeLeft
     return { shouldSell: true, reason: "TAKE_PROFIT", roiPct };
   }
 
-  // Stop loss — requires stricter prob + minimum hold time
-  if (roiPct <= -config.stopLossPct && slConfirmed && slAgedEnough) {
+  // Stop loss — suppressed if PTB safe (BTC still on winning side with margin)
+  if (!ptbSafe && roiPct <= -config.stopLossPct && slConfirmed && slAgedEnough) {
     return { shouldSell: true, reason: "STOP_LOSS", roiPct };
   }
 
-  // Signal flipped with enough conviction
-  if (!config.disableSignalFlip && modelConfirmsReversal) {
+  // Signal flipped — suppressed if PTB safe
+  if (!ptbSafe && !config.disableSignalFlip && modelConfirmsReversal) {
     return { shouldSell: true, reason: "SIGNAL_FLIP", roiPct };
   }
 
-  // Time decay — only for expensive entries (≥ 50¢)
+  // Time decay — suppressed if PTB safe; only for expensive entries (≥ 50¢)
   const entryWasCheap = pos.entryPrice < 0.50;
-  if (timeLeftMin != null && timeLeftMin < 1.5 && roiPct < -5 && !entryWasCheap) {
+  if (!ptbSafe && timeLeftMin != null && timeLeftMin < 1.5 && roiPct < -5 && !entryWasCheap) {
     return { shouldSell: true, reason: "TIME_DECAY", roiPct };
   }
 
@@ -197,18 +206,22 @@ function createSimulator(csvPath, header, config, label = "bot") {
     });
   }
 
-  function _settlePosition() {
+  async function _settlePosition() {
     if (!pos.active) return;
 
-    const ptb = lastPriceToBeat;
-    const btcFinal = lastBtcPrice;
-    if (ptb == null || btcFinal == null) {
-      // Can't determine outcome — force close at last known market price (best effort)
-      _resetPos();
-      return;
+    // Prefer definitive outcome from Polymarket API (outcomePrices) over ptb estimation.
+    // Falls back to ptb if the API doesn't return a resolved result.
+    let outcome = await fetchMarketOutcome(currentSlug).catch(() => null);
+    if (outcome === null) {
+      const ptb = lastPriceToBeat;
+      const btcFinal = lastBtcPrice;
+      if (ptb == null || btcFinal == null) {
+        _resetPos();
+        return;
+      }
+      outcome = btcFinal > ptb ? "UP" : "DOWN";
     }
 
-    const outcome = btcFinal > ptb ? "UP" : "DOWN";
     const won = pos.side === outcome;
     const resolutionPrice = won ? 1.0 : 0.0;
     const exitValue = pos.shares * resolutionPrice;
@@ -258,10 +271,10 @@ function createSimulator(csvPath, header, config, label = "bot") {
    * @param {number|null} timeLeftMin - minutes remaining in the market
    * @param {Array}       dataValues  - indicator CSV columns (everything before sim columns)
    */
-  function tick({ slug, priceToBeat, btcPrice, rec, modelUp, modelDown, marketUp, marketDown, timeLeftMin, dataValues, sawMarketStart = true }) {
+  async function tick({ slug, priceToBeat, btcPrice, rec, modelUp, modelDown, marketUp, marketDown, timeLeftMin, dataValues, sawMarketStart = true }) {
     // ── Market changed → settle open position and flush buffer ──────────
     if (slug !== currentSlug && currentSlug !== null) {
-      _settlePosition();
+      await _settlePosition();
       _flush();
       lastFlipTime = null;     // reset cooldown on new market
       flipConfirmCount = 0;    // reset flip confirmation on new market
@@ -289,6 +302,8 @@ function createSimulator(csvPath, header, config, label = "bot") {
         currentMarketPrice: currentMktPrice,
         timeLeftMin,
         config,
+        btcPrice,
+        priceToBeat,
       });
 
       // Apply consecutive-tick confirmation gate for SIGNAL_FLIP

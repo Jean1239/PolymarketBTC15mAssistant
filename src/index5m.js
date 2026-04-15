@@ -220,7 +220,7 @@ async function main() {
 
       const priceToBeat = priceLatch.update({ marketSlug, currentPrice, marketStartMs: marketStartMsNow, market: poly.market ?? null });
 
-      const settled = tracker.update({ marketSlug, rec, marketUp, marketDown, currentPrice, priceToBeat });
+      const settled = await tracker.update({ marketSlug, rec, marketUp, marketDown, currentPrice, priceToBeat });
       if (settled) {
         const { slug, side, won, pnl } = settled;
         appendCsvRow(CSV_PATH, CSV_HEADER, [
@@ -325,6 +325,7 @@ async function main() {
           stopLossMinDurationS: CONFIG.trading.stopLossMinDurationS,
           flipConfirmCount,
           flipConfirmTicks: CONFIG.trading.flipConfirmTicks,
+          btcPrice: currentPrice, priceToBeat, ptbSafeMarginUsd: CONFIG.trading.ptbSafeMarginUsd,
         });
         flipConfirmCount = displayPos.active ? (displayExitEval.flipConfirmCount ?? 0) : 0;
       } else {
@@ -340,6 +341,7 @@ async function main() {
           stopLossMinDurationS: CONFIG.trading.stopLossMinDurationS,
           flipConfirmCount: 0,
           flipConfirmTicks: 1,
+          btcPrice: currentPrice, priceToBeat, ptbSafeMarginUsd: CONFIG.trading.ptbSafeMarginUsd,
         });
       }
 
@@ -413,7 +415,7 @@ async function main() {
 
       // ── Dry-run paper-trading simulator ────────────────────────────────────
       {
-        dryRun.tick({
+        await dryRun.tick({
           slug: marketSlugNow,
           priceToBeat,
           btcPrice: currentPrice,

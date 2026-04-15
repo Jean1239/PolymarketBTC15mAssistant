@@ -37,6 +37,9 @@ export const CONFIG = {
     // Stop-loss guards: require higher conviction + minimum hold time before stopping out
     stopLossMinProb: Number(process.env.TRADE_SL_MIN_PROB || "0.65"),            // min opposite prob to trigger SL
     stopLossMinDurationS: Number(process.env.TRADE_SL_MIN_DURATION_S || "120"),  // seconds position must age before SL fires
+    // PTB safety guard: suppress SL/SIGNAL_FLIP exits when BTC is this many USD
+    // on the winning side of the price-to-beat. Absorbs ~$9 ptb drift + buffer.
+    ptbSafeMarginUsd: Number(process.env.TRADE_PTB_SAFE_MARGIN_USD || "30"),
     // Cooldown after a SIGNAL_FLIP before re-entering the same market
     flipCooldownS: Number(process.env.TRADE_FLIP_COOLDOWN_S || "60"),
     // Consecutive ticks model must confirm reversal before SIGNAL_FLIP fires
