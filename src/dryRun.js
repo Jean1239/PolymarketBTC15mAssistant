@@ -119,8 +119,8 @@ function evaluateSimExit({ pos, modelUp, modelDown, currentMarketPrice, timeLeft
     return { shouldSell: true, reason: "TAKE_PROFIT", roiPct };
   }
 
-  // Stop loss — suppressed if PTB safe (BTC still on winning side with margin)
-  if (!ptbSafe && roiPct <= -config.stopLossPct && slConfirmed && slAgedEnough) {
+  // Stop loss — suppressed if PTB safe or disabled by config
+  if (!ptbSafe && !config.disableStopLoss && roiPct <= -config.stopLossPct && slConfirmed && slAgedEnough) {
     return { shouldSell: true, reason: "STOP_LOSS", roiPct };
   }
 
@@ -491,6 +491,7 @@ export function createDryRunSimulator5m(csvPath, tradingConfig = {}) {
     flipCooldownS: tradingConfig.flipCooldownS ?? 90,
     flipConfirmTicks: tradingConfig.flipConfirmTicks ?? 5,
     disableSignalFlip: tradingConfig.disableSignalFlip ?? true,
+    disableStopLoss: tradingConfig.disableStopLoss ?? false,
     entryMinMarketPrice: tradingConfig.entryMinMarketPrice ?? 0,
     entryMaxMarketPrice: tradingConfig.entryMaxMarketPrice ?? 1,
   };

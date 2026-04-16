@@ -108,7 +108,7 @@ export function resetIfMarketChanged(currentSlug) {
 
 // Avalia se a posição aberta deve ser encerrada.
 // Retorna { shouldSell, reason, urgency } onde urgency é "HIGH" | "MEDIUM" | null
-export function evaluateExit({ position, modelUp, modelDown, currentMarketPrice, timeLeftMin, takeProfitPct, stopLossPct, signalFlipMinProb, stopLossMinProb = null, stopLossMinDurationS = 0, flipConfirmCount = 0, flipConfirmTicks = 1, btcPrice = null, priceToBeat = null, ptbSafeMarginUsd = 30 }) {
+export function evaluateExit({ position, modelUp, modelDown, currentMarketPrice, timeLeftMin, takeProfitPct, stopLossPct, signalFlipMinProb, stopLossMinProb = null, stopLossMinDurationS = 0, flipConfirmCount = 0, flipConfirmTicks = 1, btcPrice = null, priceToBeat = null, ptbSafeMarginUsd = 30, disableStopLoss = false }) {
   if (!position.active || currentMarketPrice == null) {
     return { shouldSell: false, reason: null, urgency: null, flipConfirmCount: 0 };
   }
@@ -141,8 +141,8 @@ export function evaluateExit({ position, modelUp, modelDown, currentMarketPrice,
     return { shouldSell: true, reason: "TAKE_PROFIT", urgency, roiPct, flipConfirmCount: 0 };
   }
 
-  // 2. Stop loss — suprimido se PTB seguro (BTC ainda do lado vencedor com margem)
-  if (!ptbSafe && roiPct <= -stopLossPct && slConfirmed && slAgedEnough) {
+  // 2. Stop loss — suprimido se PTB seguro ou desabilitado por config
+  if (!ptbSafe && !disableStopLoss && roiPct <= -stopLossPct && slConfirmed && slAgedEnough) {
     const urgency = oppositeProb >= 0.65 ? "HIGH" : "MEDIUM";
     return { shouldSell: true, reason: "STOP_LOSS", urgency, roiPct, flipConfirmCount: 0 };
   }

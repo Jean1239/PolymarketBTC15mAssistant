@@ -145,9 +145,11 @@ After selling, the simulator can re-enter on a new signal within the same market
 
 **Post-flip cooldown:** after a `SIGNAL_FLIP` exit the simulator will not open a new position for `flipCooldownS` seconds (60s on 15m, 90s on 5m). The cooldown resets when a new market starts.
 
-**Stop-loss guards:** both simulators use `stopLossMinProb = 0.65` (stricter than the `signalFlipMinProb` gate) and `stopLossMinDurationS = 120` to avoid being stopped out in the first ~2 minutes of a volatile move. Earlier 5m dry-run analysis showed stops averaging only 79 seconds despite an 86% settled win rate — most would have recovered if held longer. A later 5-day run on 15m confirmed the same pattern (21 stops, 0 wins, −$10), so the 5m guards were ported to the 15m base config.
+**Stop-loss (5m — disabled):** `disableStopLoss = true` in config5m.js. Analysis of 161 SL trades showed 78% correctly exited before a total loss, but the 22% that cut eventual winners cost far more than the savings: real SL PnL was −$75.65 vs hypothetical hold-to-settlement PnL of −$25.64 (+$50 left on the table). With an 85% settled win rate, holding to settlement is the dominant strategy on 5m.
 
-**Signal-flip guards (5m):** the 5m simulator raises `signalFlipMinProb` to `0.62` (vs `0.58` on 15m) and `flipConfirmTicks` to `5`. A 5-day dry-run showed 158 SIGNAL_FLIP exits with only 3.8% winning — the lower threshold was catching transient blips across 0.58 that then reverted, cutting positions that would have settled as wins (settled-only win rate is 92.8%). Higher conviction + longer confirmation persistence filters those blips.
+**Stop-loss guards (15m):** the 15m simulator uses `stopLossMinProb = 0.65` (stricter than the `signalFlipMinProb` gate) and `stopLossMinDurationS = 120` to avoid being stopped out in the first ~2 minutes of a volatile move.
+
+**Signal-flip (5m — disabled):** `disableSignalFlip = true`. A 5-day dry-run showed 158 SIGNAL_FLIP exits with only 3.8% winning — the lower threshold was catching transient blips across 0.58 that then reverted, cutting positions that would have settled as wins.
 
 **Output files:**
 

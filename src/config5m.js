@@ -39,5 +39,9 @@ export const CONFIG = {
     flipCooldownS: Number(process.env.TRADE_FLIP_COOLDOWN_S || "90"),
     // Require 5 consecutive confirming ticks before exiting on signal flip
     flipConfirmTicks: Number(process.env.TRADE_FLIP_CONFIRM_TICKS || "5"),
+    // Disable stop-loss on 5m: data shows 78% of SLs exit before a loss, but the 22%
+    // that cut winners cost more than the savings. Holding to settlement is +$50 better
+    // across 161 SL trades. The 85% settled win rate makes hold-to-settlement dominant.
+    disableStopLoss: true,
   },
 };

@@ -326,6 +326,7 @@ async function main() {
           flipConfirmCount,
           flipConfirmTicks: CONFIG.trading.flipConfirmTicks,
           btcPrice: currentPrice, priceToBeat, ptbSafeMarginUsd: CONFIG.trading.ptbSafeMarginUsd,
+          disableStopLoss: CONFIG.trading.disableStopLoss ?? false,
         });
         flipConfirmCount = displayPos.active ? (displayExitEval.flipConfirmCount ?? 0) : 0;
       } else {
@@ -342,6 +343,7 @@ async function main() {
           flipConfirmCount: 0,
           flipConfirmTicks: 1,
           btcPrice: currentPrice, priceToBeat, ptbSafeMarginUsd: CONFIG.trading.ptbSafeMarginUsd,
+          disableStopLoss: CONFIG.trading.disableStopLoss ?? false,
         });
       }
 
