@@ -23,6 +23,7 @@ import path from "node:path";
 import { ensureDir } from "./utils.js";
 import { notifyTrade } from "./notify.js";
 import { fetchMarketOutcome } from "./data/polymarket.js";
+import { computeTradeAmount } from "./trading/sizing.js";
 
 // ── Headers ─────────────────────────────────────────────────────────────────
 
@@ -129,9 +130,13 @@ function evaluateSimExit({ pos, modelUp, modelDown, currentMarketPrice, timeLeft
     return { shouldSell: true, reason: "SIGNAL_FLIP", roiPct };
   }
 
-  // Time decay — suppressed if PTB safe; only for expensive entries (≥ 50¢)
+  // Time decay — suppressed if PTB safe; only for expensive entries (≥ 50¢).
+  // Thresholds come from config so the 5m bot can widen the loss requirement
+  // and fire earlier than 15m (see config5m.js).
   const entryWasCheap = pos.entryPrice < 0.50;
-  if (!ptbSafe && timeLeftMin != null && timeLeftMin < 1.5 && roiPct < -5 && !entryWasCheap) {
+  const tdMinLeft = config.timeDecayMinLeftMin ?? 1.5;
+  const tdMinLoss = config.timeDecayMinLossPct ?? 5;
+  if (!ptbSafe && timeLeftMin != null && timeLeftMin < tdMinLeft && roiPct < -tdMinLoss && !entryWasCheap) {
     return { shouldSell: true, reason: "TIME_DECAY", roiPct };
   }
 
@@ -382,13 +387,20 @@ function createSimulator(csvPath, header, config, label = "bot") {
       const priceAllowed = entryMktPrice != null && entryMktPrice >= minEntry && entryMktPrice <= maxEntry;
 
       if (priceAllowed && entryMktPrice > 0) {
-        const shares = config.tradeAmount / entryMktPrice;
+        const invested = computeTradeAmount({
+          baseAmount: config.tradeAmount,
+          side: rec.side,
+          entryPrice: entryMktPrice,
+          modelUp, modelDown,
+          config,
+        });
+        const shares = invested / entryMktPrice;
         pos = {
           active: true,
           side: rec.side,
           entryPrice: entryMktPrice,
           shares,
-          invested: config.tradeAmount,
+          invested,
           marketSlug: slug,
           entryTime: Date.now(),
           ptbAtEntry: tickPtb,
@@ -408,7 +420,7 @@ function createSimulator(csvPath, header, config, label = "bot") {
         notifyTrade({
           bot: label, isLive: false, action: "BUY",
           side: rec.side, market: slug,
-          entryPrice: entryMktPrice, invested: config.tradeAmount,
+          entryPrice: entryMktPrice, invested,
         });
       }
     }
@@ -469,8 +481,17 @@ export function createDryRunSimulator15m(csvPath, tradingConfig = {}) {
     stopLossMinDurationS: tradingConfig.stopLossMinDurationS ?? 120,
     flipCooldownS: tradingConfig.flipCooldownS ?? 60,
     flipConfirmTicks: tradingConfig.flipConfirmTicks ?? 2,
+    disableSignalFlip: tradingConfig.disableSignalFlip ?? false,
+    disableStopLoss: tradingConfig.disableStopLoss ?? false,
     entryMinMarketPrice: tradingConfig.entryMinMarketPrice ?? 0,
     entryMaxMarketPrice: tradingConfig.entryMaxMarketPrice ?? 1,
+    timeDecayMinLeftMin: tradingConfig.timeDecayMinLeftMin ?? 1.5,
+    timeDecayMinLossPct: tradingConfig.timeDecayMinLossPct ?? 5,
+    ptbSafeMarginUsd: tradingConfig.ptbSafeMarginUsd ?? 30,
+    highConvictionMultiplier: tradingConfig.highConvictionMultiplier ?? 1,
+    highConvictionMinProb: tradingConfig.highConvictionMinProb ?? 0.70,
+    highConvictionEntryMin: tradingConfig.highConvictionEntryMin ?? 0.45,
+    highConvictionEntryMax: tradingConfig.highConvictionEntryMax ?? 0.50,
   };
   return createSimulator(csvPath, HEADER_15M, config, "15m");
 }
@@ -491,9 +512,16 @@ export function createDryRunSimulator5m(csvPath, tradingConfig = {}) {
     flipCooldownS: tradingConfig.flipCooldownS ?? 90,
     flipConfirmTicks: tradingConfig.flipConfirmTicks ?? 5,
     disableSignalFlip: tradingConfig.disableSignalFlip ?? true,
-    disableStopLoss: tradingConfig.disableStopLoss ?? false,
+    disableStopLoss: tradingConfig.disableStopLoss ?? true,
     entryMinMarketPrice: tradingConfig.entryMinMarketPrice ?? 0,
     entryMaxMarketPrice: tradingConfig.entryMaxMarketPrice ?? 1,
+    timeDecayMinLeftMin: tradingConfig.timeDecayMinLeftMin ?? 2.5,
+    timeDecayMinLossPct: tradingConfig.timeDecayMinLossPct ?? 15,
+    ptbSafeMarginUsd: tradingConfig.ptbSafeMarginUsd ?? 30,
+    highConvictionMultiplier: tradingConfig.highConvictionMultiplier ?? 1,
+    highConvictionMinProb: tradingConfig.highConvictionMinProb ?? 0.70,
+    highConvictionEntryMin: tradingConfig.highConvictionEntryMin ?? 0.45,
+    highConvictionEntryMax: tradingConfig.highConvictionEntryMax ?? 0.50,
   };
   return createSimulator(csvPath, HEADER_5M, config, "5m");
 }

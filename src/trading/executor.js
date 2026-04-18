@@ -3,6 +3,7 @@ import { clamp } from "../utils.js";
 import { setStatusMessage } from "../display.js";
 import { buyMarketOrder, sellMarketOrder } from "./orders.js";
 import { getPosition, recordBuy, recordSell, fetchPositionBalance } from "./position.js";
+import { computeTradeAmount } from "./sizing.js";
 import { notifyTrade } from "../notify.js";
 
 function logError(msg) {
@@ -57,16 +58,26 @@ export async function processActionQueue(actionQueue, { trading, poly, rec, time
       const priceNum = rawAsk != null ? clamp(rawAsk + 0.02, 0, 0.97) : 0.5;
       const entryRef = rawAsk ?? priceNum;
 
+      const invested = computeTradeAmount({
+        baseAmount: trading.tradeAmount,
+        side,
+        entryPrice: entryRef,
+        modelUp: timeAware?.adjustedUp,
+        modelDown: timeAware?.adjustedDown,
+        config: trading,
+      });
+
       setStatusMessage(`Comprando ${side}...`);
-      const result = await buyMarketOrder({ client: trading.client, tokenId, amount: trading.tradeAmount, price: priceNum });
+      const result = await buyMarketOrder({ client: trading.client, tokenId, amount: invested, price: priceNum });
       if (result.ok) {
         const balance = await fetchPositionBalance(trading.client, tokenId);
-        const shares = balance > 0 ? balance : trading.tradeAmount / entryRef;
-        recordBuy({ side, tokenId, shares, entryPrice: entryRef, invested: trading.tradeAmount, marketSlug: marketSlugNow, orderId: result.order?.orderID });
+        const shares = balance > 0 ? balance : invested / entryRef;
+        recordBuy({ side, tokenId, shares, entryPrice: entryRef, invested, marketSlug: marketSlugNow, orderId: result.order?.orderID });
         const orderId = result.order?.orderID ?? result.order?.id ?? "-";
         const balanceStr = balance > 0 ? `shares: ${balance.toFixed(2)}` : "saldo 0 (ordem não preenchida?)";
-        setStatusMessage(`COMPROU ${side} @ ${(entryRef * 100).toFixed(1)}¢ | $${trading.tradeAmount} | ${balanceStr} | ID: ${String(orderId).slice(0, 12)}`, 8000);
-        notifyTrade({ bot: botLabel, isLive: true, action: "BUY", side, market: marketSlugNow, entryPrice: entryRef, invested: trading.tradeAmount });
+        const sizingTag = invested !== trading.tradeAmount ? ` [HIGH-CONV x${(invested / trading.tradeAmount).toFixed(1)}]` : "";
+        setStatusMessage(`COMPROU ${side} @ ${(entryRef * 100).toFixed(1)}¢ | $${invested}${sizingTag} | ${balanceStr} | ID: ${String(orderId).slice(0, 12)}`, 8000);
+        notifyTrade({ bot: botLabel, isLive: true, action: "BUY", side, market: marketSlugNow, entryPrice: entryRef, invested });
       } else {
         const errMsg = `Erro na compra: ${result.error}`;
         setStatusMessage(errMsg, 15000);

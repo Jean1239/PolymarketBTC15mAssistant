@@ -108,7 +108,7 @@ export function resetIfMarketChanged(currentSlug) {
 
 // Avalia se a posição aberta deve ser encerrada.
 // Retorna { shouldSell, reason, urgency } onde urgency é "HIGH" | "MEDIUM" | null
-export function evaluateExit({ position, modelUp, modelDown, currentMarketPrice, timeLeftMin, takeProfitPct, stopLossPct, signalFlipMinProb, stopLossMinProb = null, stopLossMinDurationS = 0, flipConfirmCount = 0, flipConfirmTicks = 1, btcPrice = null, priceToBeat = null, ptbSafeMarginUsd = 30, disableStopLoss = false }) {
+export function evaluateExit({ position, modelUp, modelDown, currentMarketPrice, timeLeftMin, takeProfitPct, stopLossPct, signalFlipMinProb, stopLossMinProb = null, stopLossMinDurationS = 0, flipConfirmCount = 0, flipConfirmTicks = 1, btcPrice = null, priceToBeat = null, ptbSafeMarginUsd = 30, disableStopLoss = false, disableSignalFlip = false, timeDecayMinLeftMin = 1.5, timeDecayMinLossPct = 5 }) {
   if (!position.active || currentMarketPrice == null) {
     return { shouldSell: false, reason: null, urgency: null, flipConfirmCount: 0 };
   }
@@ -147,8 +147,8 @@ export function evaluateExit({ position, modelUp, modelDown, currentMarketPrice,
     return { shouldSell: true, reason: "STOP_LOSS", urgency, roiPct, flipConfirmCount: 0 };
   }
 
-  // 3. Sinal invertido — suprimido se PTB seguro; requer N ticks consecutivos
-  if (!ptbSafe && modelConfirmsReversal) {
+  // 3. Sinal invertido — suprimido se PTB seguro ou desabilitado; requer N ticks consecutivos
+  if (!ptbSafe && !disableSignalFlip && modelConfirmsReversal) {
     const newCount = flipConfirmCount + 1;
     if (newCount >= flipConfirmTicks) {
       const urgency = oppositeProb >= 0.65 ? "HIGH" : "MEDIUM";
@@ -159,7 +159,7 @@ export function evaluateExit({ position, modelUp, modelDown, currentMarketPrice,
 
   // 4. Pouco tempo + perdendo — suprimido se PTB seguro; só aplica se entrada cara (>= 50¢)
   const entryWasCheap = position.entryPrice < 0.50;
-  if (!ptbSafe && timeLeftMin != null && timeLeftMin < 1.5 && roiPct < -5 && !entryWasCheap) {
+  if (!ptbSafe && timeLeftMin != null && timeLeftMin < timeDecayMinLeftMin && roiPct < -timeDecayMinLossPct && !entryWasCheap) {
     return { shouldSell: true, reason: "TIME_DECAY", urgency: "MEDIUM", roiPct, flipConfirmCount: 0 };
   }
 

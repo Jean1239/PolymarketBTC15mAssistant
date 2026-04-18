@@ -41,14 +41,31 @@ export const CONFIG = {
     // on the winning side of the price-to-beat. Absorbs ~$9 ptb drift + buffer.
     ptbSafeMarginUsd: Number(process.env.TRADE_PTB_SAFE_MARGIN_USD || "30"),
     // Entry price filter: only enter if the market price of the chosen side is
-    // within [entryMinMarketPrice, entryMaxMarketPrice]. Default 0–1 (disabled).
-    // Example: min=0.40, max=0.80 blocks entries when too far against/with market.
-    entryMinMarketPrice: Number(process.env.TRADE_ENTRY_MIN_PRICE || "0"),
-    entryMaxMarketPrice: Number(process.env.TRADE_ENTRY_MAX_PRICE || "1"),
+    // within [entryMinMarketPrice, entryMaxMarketPrice].
+    // Defaults come from dry-run analysis: entries below 0.45 and above 0.58
+    // are net-losers on 15m. See STRATEGY_LOG.md.
+    entryMinMarketPrice: Number(process.env.TRADE_ENTRY_MIN_PRICE || "0.45"),
+    entryMaxMarketPrice: Number(process.env.TRADE_ENTRY_MAX_PRICE || "0.58"),
     // Cooldown after a SIGNAL_FLIP before re-entering the same market
     flipCooldownS: Number(process.env.TRADE_FLIP_COOLDOWN_S || "60"),
     // Consecutive ticks model must confirm reversal before SIGNAL_FLIP fires
     flipConfirmTicks: Number(process.env.TRADE_FLIP_CONFIRM_TICKS || "2"),
+    // Disable exits:
+    //   - SIGNAL_FLIP: 15m data shows 25 flips with avg -$0.36 PnL; hold-to-settlement
+    //     performs better. Enable via TRADE_DISABLE_SIGNAL_FLIP=false to re-activate.
+    disableSignalFlip: (process.env.TRADE_DISABLE_SIGNAL_FLIP ?? "true").toLowerCase() === "true",
+    disableStopLoss: (process.env.TRADE_DISABLE_STOP_LOSS ?? "false").toLowerCase() === "true",
+    // TIME_DECAY exit: fires when time-left (min) < X AND losing more than Y%.
+    // Only applies to expensive entries (entryPrice >= 0.50).
+    timeDecayMinLeftMin: Number(process.env.TRADE_TIME_DECAY_MIN_LEFT_MIN || "1.5"),
+    timeDecayMinLossPct: Number(process.env.TRADE_TIME_DECAY_MIN_LOSS_PCT || "5"),
+    // High-conviction position sizing. When entry price ∈ [entryMin, entryMax]
+    // AND chosen-side model prob ≥ minProb, trade amount is multiplied.
+    // Multiplier=1 disables the feature.
+    highConvictionMultiplier: Number(process.env.TRADE_HIGH_CONVICTION_MULT || "2"),
+    highConvictionMinProb: Number(process.env.TRADE_HIGH_CONVICTION_MIN_PROB || "0.70"),
+    highConvictionEntryMin: Number(process.env.TRADE_HIGH_CONVICTION_ENTRY_MIN || "0.45"),
+    highConvictionEntryMax: Number(process.env.TRADE_HIGH_CONVICTION_ENTRY_MAX || "0.50"),
     // When true: paper-trading only — no real orders even if private key is set
     dryRunOnly: (process.env.DRY_RUN || "").toLowerCase() === "true",
     // When true: enables real order execution. Default false = simulated/paper mode.

@@ -312,38 +312,39 @@ async function main() {
 
       // Position and exit eval: real when live, simulated otherwise
       let displayPos, displayCurrentMktPrice, displayExitEval;
+      const baseExitEvalArgs = {
+        takeProfitPct: CONFIG.trading.takeProfitPct,
+        stopLossPct: CONFIG.trading.stopLossPct,
+        signalFlipMinProb: CONFIG.trading.signalFlipMinProb,
+        stopLossMinProb: CONFIG.trading.stopLossMinProb,
+        stopLossMinDurationS: CONFIG.trading.stopLossMinDurationS,
+        flipConfirmTicks: CONFIG.trading.flipConfirmTicks,
+        btcPrice: currentPrice, priceToBeat,
+        ptbSafeMarginUsd: CONFIG.trading.ptbSafeMarginUsd,
+        disableStopLoss: CONFIG.trading.disableStopLoss ?? false,
+        disableSignalFlip: CONFIG.trading.disableSignalFlip ?? false,
+        timeDecayMinLeftMin: CONFIG.trading.timeDecayMinLeftMin ?? 2.5,
+        timeDecayMinLossPct: CONFIG.trading.timeDecayMinLossPct ?? 15,
+      };
       if (liveTrading) {
         displayPos = getPosition();
         displayCurrentMktPrice = displayPos.active ? (displayPos.side === "UP" ? marketUp : marketDown) : null;
         displayExitEval = evaluateExit({
+          ...baseExitEvalArgs,
           position: displayPos, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown,
           currentMarketPrice: displayCurrentMktPrice, timeLeftMin,
-          takeProfitPct: CONFIG.trading.takeProfitPct,
-          stopLossPct: CONFIG.trading.stopLossPct,
-          signalFlipMinProb: CONFIG.trading.signalFlipMinProb,
-          stopLossMinProb: CONFIG.trading.stopLossMinProb,
-          stopLossMinDurationS: CONFIG.trading.stopLossMinDurationS,
           flipConfirmCount,
-          flipConfirmTicks: CONFIG.trading.flipConfirmTicks,
-          btcPrice: currentPrice, priceToBeat, ptbSafeMarginUsd: CONFIG.trading.ptbSafeMarginUsd,
-          disableStopLoss: CONFIG.trading.disableStopLoss ?? false,
         });
         flipConfirmCount = displayPos.active ? (displayExitEval.flipConfirmCount ?? 0) : 0;
       } else {
         displayPos = simStats.position;
         displayCurrentMktPrice = displayPos.active ? (displayPos.side === "UP" ? marketUp : marketDown) : null;
         displayExitEval = evaluateExit({
+          ...baseExitEvalArgs,
           position: displayPos, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown,
           currentMarketPrice: displayCurrentMktPrice, timeLeftMin,
-          takeProfitPct: CONFIG.trading.takeProfitPct,
-          stopLossPct: CONFIG.trading.stopLossPct,
-          signalFlipMinProb: CONFIG.trading.signalFlipMinProb,
-          stopLossMinProb: CONFIG.trading.stopLossMinProb,
-          stopLossMinDurationS: CONFIG.trading.stopLossMinDurationS,
           flipConfirmCount: 0,
           flipConfirmTicks: 1,
-          btcPrice: currentPrice, priceToBeat, ptbSafeMarginUsd: CONFIG.trading.ptbSafeMarginUsd,
-          disableStopLoss: CONFIG.trading.disableStopLoss ?? false,
         });
       }
 

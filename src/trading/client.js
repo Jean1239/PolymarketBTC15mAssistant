@@ -18,12 +18,12 @@ export async function initTradingClient(config) {
   const { privateKey, funder, signatureType, tradeAmount } = config.trading;
 
   if (!privateKey) {
-    _cached = { client: null, tradingEnabled: false, tradeAmount: 0, wallet: null };
+    _cached = { ...config.trading, client: null, tradingEnabled: false, tradeAmount: 0, wallet: null };
     return _cached;
   }
 
   if (config.trading.dryRunOnly) {
-    _cached = { client: null, tradingEnabled: false, tradeAmount: 0, wallet: null };
+    _cached = { ...config.trading, client: null, tradingEnabled: false, tradeAmount: 0, wallet: null };
     return _cached;
   }
 
@@ -100,7 +100,10 @@ export async function initTradingClient(config) {
 
   // balanceAddress: onde está o USDC — o funder (proxy) ou o EOA
   const balanceAddress = funderAddr ?? _wallet.address;
-  _cached = { client, tradingEnabled: true, tradeAmount, balanceAddress, wallet: _wallet };
+  // Spread all trading config so downstream consumers (executor, evaluators) can
+  // read entryMinMarketPrice, highConvictionMultiplier, timeDecay*, etc. directly
+  // from the trading object instead of re-reading CONFIG.trading.
+  _cached = { ...config.trading, client, tradingEnabled: true, tradeAmount, balanceAddress, wallet: _wallet };
   return _cached;
 }
 

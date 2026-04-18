@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "start": "node --env-file=.env src/index.js",
-    "start:5m": "node --env-file=.env src/index5m.js"
+    "start:5m": "node --env-file=.env src/index5m.js",
+    "report": "node scripts/report.js"
   },
   "dependencies": {
     "@polymarket/clob-client": "^5.8.1",

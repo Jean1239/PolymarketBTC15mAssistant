@@ -42,6 +42,21 @@ export const CONFIG = {
     // Disable stop-loss on 5m: data shows 78% of SLs exit before a loss, but the 22%
     // that cut winners cost more than the savings. Holding to settlement is +$50 better
     // across 161 SL trades. The 85% settled win rate makes hold-to-settlement dominant.
-    disableStopLoss: true,
+    disableStopLoss: (process.env.TRADE_DISABLE_STOP_LOSS_5M ?? "true").toLowerCase() === "true",
+    // Disable signal-flip on 5m: 158 SIGNAL_FLIPs showed 3.8% win rate.
+    // Lower threshold was catching transient blips across 0.58 that then reverted.
+    disableSignalFlip: (process.env.TRADE_DISABLE_SIGNAL_FLIP_5M ?? "true").toLowerCase() === "true",
+    // Entry price filter tuned for 5m dry-run: entries < 0.50 lose $3.53, entries
+    // at 0.50–0.54 lose $5.46 historically. Only 0.55–0.60 zone shows positive PnL.
+    // Uses its own env vars so it can differ from the 15m config.
+    entryMinMarketPrice: Number(process.env.TRADE_ENTRY_MIN_PRICE_5M || "0.50"),
+    entryMaxMarketPrice: Number(process.env.TRADE_ENTRY_MAX_PRICE_5M || "0.60"),
+    // Tighter TIME_DECAY on 5m: require ≥15% loss before cutting (vs 5% on 15m),
+    // and fire earlier (2.5 min left vs 1.5 min). Cuts clearly-lost positions
+    // sooner but avoids trimming the small recoveries seen near settlement.
+    timeDecayMinLeftMin: Number(process.env.TRADE_TIME_DECAY_MIN_LEFT_MIN_5M || "2.5"),
+    timeDecayMinLossPct: Number(process.env.TRADE_TIME_DECAY_MIN_LOSS_PCT_5M || "15"),
+    // High-conviction sizing disabled by default on 5m — higher noise per trade.
+    highConvictionMultiplier: Number(process.env.TRADE_HIGH_CONVICTION_MULT_5M || "1"),
   },
 };

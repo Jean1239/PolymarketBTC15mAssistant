@@ -6,52 +6,118 @@ Cada entrada documenta o estado da estratégia em um snapshot de logs, com parâ
 
 ---
 
+## Comandos úteis
+
+Rodar os bots (cada um lê `--env-file=.env` automaticamente):
+```bash
+npm start         # 15m bot
+npm run start:5m  # 5m bot
+```
+
+**Gerar relatório de performance acumulada** (sempre que trocar parâmetros, rodar para confirmar o baseline):
+```bash
+npm run report
+```
+O comando lê `logs/dryrun_15m_trades.csv` e `logs/dryrun_5m_trades.csv` e imprime win rate, PnL, profit factor, breakdown por motivo de saída, por lado, maior streak de wins/losses, ROI máximo/mínimo e duração média. É o indicador mais rápido para saber se uma mudança de parâmetro moveu a estratégia na direção esperada.
+
+**Fluxo recomendado ao mudar parâmetro:**
+1. Arquivar os logs atuais em `logs/archive/<data>_pre-<mudança>/` e registrar um snapshot aqui.
+2. Editar o parâmetro (via `.env` ou default em `src/config*.js`).
+3. Rodar o bot por ≥ 24h para acumular amostra mínima (>20 trades).
+4. Rodar `npm run report` e comparar com o snapshot anterior nesta tabela.
+
+---
+
 ## Versão atual
 
 **Ref:** `logs/` (live)  
-**Data:** 2026-04-16 (em andamento)
+**Data:** 2026-04-17
 
-### Mudança vs anterior
-- 5m: stop-loss desabilitado (`disableStopLoss = true`). Análise de 161 trades SL mostrou 78% de saídas corretas, mas o 22% que cortou winners custou muito mais (SL real: −$75.65 vs hold-to-settlement: −$25.64). Taxa de win settled 5m é ~85%, logo hold até settlement é dominante.
+### Mudanças vs anterior
+Introduzidas após análise dos 51 trades 15m / 69 trades 5m registrados em 2026-04-17 (baseline arquivado em `logs/archive/2026-04-17_pre-entry-filter-and-15m-flip-disable/`):
+1. **Ativado filtro de preço de entrada em ambos os bots** (`entryMinMarketPrice` / `entryMaxMarketPrice`). Estava disponível mas desativado (0–1). Defaults agora baseados em análise por faixa de PnL.
+2. **Desabilitado SIGNAL_FLIP no 15m** (`disableSignalFlip = true`). 25 flips causaram −$9.00 (51% dos trades) — mesmo padrão que justificou desabilitar no 5m.
+3. **Endurecido TIME_DECAY no 5m**: `timeLeftMin < 2.5` + loss `> 15%` (antes: <1.5 + >5%). TIME_DECAY custou −$13.25 em 17 trades, a maioria com recuperação negligenciável no final.
+4. **Sizing de alta convicção no 15m**: `highConvictionMultiplier = 2` quando entrada ∈ [0.45, 0.50] e prob do lado escolhido ≥ 0.70. Aproveita a faixa 0.45–0.49 que historicamente traz +$1.28 em 26 trades.
 
 ### Parâmetros — 15m
-| Parâmetro | Valor |
-|---|---|
-| `takeProfitPct` | 20% |
-| `stopLossPct` | 25% |
-| `signalFlipMinProb` | 0.58 |
-| `stopLossMinProb` | 0.65 |
-| `stopLossMinDurationS` | 120s |
-| `flipCooldownS` | 60s |
-| `flipConfirmTicks` | 2 |
-| `disableStopLoss` | false |
-| `disableSignalFlip` | false |
+| Parâmetro | Valor | Origem |
+|---|---|---|
+| `tradeAmount` | $1 (base) | `POLYMARKET_TRADE_AMOUNT` |
+| `takeProfitPct` | 20% | `TRADE_TAKE_PROFIT_PCT` |
+| `stopLossPct` | 25% | `TRADE_STOP_LOSS_PCT` |
+| `signalFlipMinProb` | 0.58 | `TRADE_SIGNAL_FLIP_PROB` |
+| `stopLossMinProb` | 0.65 | `TRADE_SL_MIN_PROB` |
+| `stopLossMinDurationS` | 120s | `TRADE_SL_MIN_DURATION_S` |
+| `flipCooldownS` | 60s | `TRADE_FLIP_COOLDOWN_S` |
+| `flipConfirmTicks` | 2 | `TRADE_FLIP_CONFIRM_TICKS` |
+| `ptbSafeMarginUsd` | 30 | `TRADE_PTB_SAFE_MARGIN_USD` |
+| `disableStopLoss` | false | `TRADE_DISABLE_STOP_LOSS` |
+| `disableSignalFlip` | **true** ✱ | `TRADE_DISABLE_SIGNAL_FLIP` |
+| `entryMinMarketPrice` | **0.45** ✱ | `TRADE_ENTRY_MIN_PRICE` |
+| `entryMaxMarketPrice` | **0.58** ✱ | `TRADE_ENTRY_MAX_PRICE` |
+| `timeDecayMinLeftMin` | 1.5 min | `TRADE_TIME_DECAY_MIN_LEFT_MIN` |
+| `timeDecayMinLossPct` | 5% | `TRADE_TIME_DECAY_MIN_LOSS_PCT` |
+| `highConvictionMultiplier` | **2×** ✱ | `TRADE_HIGH_CONVICTION_MULT` |
+| `highConvictionMinProb` | 0.70 | `TRADE_HIGH_CONVICTION_MIN_PROB` |
+| `highConvictionEntryMin` | 0.45 | `TRADE_HIGH_CONVICTION_ENTRY_MIN` |
+| `highConvictionEntryMax` | 0.50 | `TRADE_HIGH_CONVICTION_ENTRY_MAX` |
 
 ### Parâmetros — 5m
-| Parâmetro | Valor |
-|---|---|
-| `takeProfitPct` | 20% |
-| `stopLossPct` | 25% |
-| `signalFlipMinProb` | 0.62 |
-| `stopLossMinProb` | 0.65 |
-| `stopLossMinDurationS` | 120s |
-| `flipCooldownS` | 90s |
-| `flipConfirmTicks` | 5 |
-| `disableStopLoss` | **true** |
-| `disableSignalFlip` | **true** |
+| Parâmetro | Valor | Origem |
+|---|---|---|
+| `tradeAmount` | $1 (base) | `POLYMARKET_TRADE_AMOUNT` |
+| `takeProfitPct` | 20% | `TRADE_TAKE_PROFIT_PCT` |
+| `stopLossPct` | 25% | `TRADE_STOP_LOSS_PCT` |
+| `signalFlipMinProb` | 0.62 | `TRADE_SIGNAL_FLIP_PROB` |
+| `stopLossMinProb` | 0.65 | `TRADE_SL_MIN_PROB` |
+| `stopLossMinDurationS` | 120s | `TRADE_SL_MIN_DURATION_S` |
+| `flipCooldownS` | 90s | `TRADE_FLIP_COOLDOWN_S` |
+| `flipConfirmTicks` | 5 | `TRADE_FLIP_CONFIRM_TICKS` |
+| `ptbSafeMarginUsd` | 30 | `TRADE_PTB_SAFE_MARGIN_USD` |
+| `disableStopLoss` | **true** | `TRADE_DISABLE_STOP_LOSS_5M` |
+| `disableSignalFlip` | **true** | `TRADE_DISABLE_SIGNAL_FLIP_5M` |
+| `entryMinMarketPrice` | **0.50** ✱ | `TRADE_ENTRY_MIN_PRICE_5M` |
+| `entryMaxMarketPrice` | **0.60** ✱ | `TRADE_ENTRY_MAX_PRICE_5M` |
+| `timeDecayMinLeftMin` | **2.5 min** ✱ | `TRADE_TIME_DECAY_MIN_LEFT_MIN_5M` |
+| `timeDecayMinLossPct` | **15%** ✱ | `TRADE_TIME_DECAY_MIN_LOSS_PCT_5M` |
+| `highConvictionMultiplier` | 1 (off) | `TRADE_HIGH_CONVICTION_MULT_5M` |
 
-### Desempenho (paper-trading acumulado)
-| Bot | Trades | Win | Loss | Win Rate | PnL |
-|---|---|---|---|---|---|
-| 15m | 34 | 17 | 17 | 50.0% | +$4.73 |
-| 5m | 105 | 49 | 56 | 46.7% | +$3.33 |
+✱ = mudanças desta versão. Valores são defaults no código; `.env` sobrescreve se definido.
 
-### Exit reasons — 5m
-| Razão | Count |
-|---|---|
-| SETTLED_WIN | 49 |
-| TIME_DECAY | 28 |
-| SETTLED_LOSS | 28 |
+### Desempenho (paper-trading acumulado — pré-mudança, via `npm run report`)
+| Bot | Trades | Win | Loss | Win Rate | PnL | Profit Fac | Avg Win | Avg Loss |
+|---|---|---|---|---|---|---|---|---|
+| 15m | 51 | 15 | 36 | 29.4% | −$1.98 | 0.89 | +$1.06 | −$0.50 |
+| 5m | 69 | 26 | 43 | 37.7% | −$12.01 | 0.69 | +$1.04 | −$0.91 |
+
+### Exit reasons — 15m (pré-mudança)
+| Razão | Count | PnL |
+|---|---|---|
+| SIGNAL_FLIP | **26** | **−$9.21** |
+| SETTLED_WIN | 14 | +$15.44 |
+| SETTLED_LOSS | 8 | −$8.00 |
+| TAKE_PROFIT | 1 | +$0.50 |
+| TIME_DECAY | 1 | −$0.36 |
+| STOP_LOSS | 1 | −$0.35 |
+
+### Exit reasons — 5m (pré-mudança)
+| Razão | Count | PnL |
+|---|---|---|
+| SETTLED_LOSS | 25 | −$25.00 |
+| SETTLED_WIN | 24 | +$26.33 |
+| TIME_DECAY | **18** | **−$14.10** |
+| TAKE_PROFIT | 2 | +$0.77 |
+
+### PnL por faixa de preço de entrada (pré-mudança)
+| Faixa | 15m PnL (trades) | 5m PnL (trades) |
+|---|---|---|
+| 0.30–0.39 | −$1.13 (2) | −$0.22 (3) |
+| 0.40–0.44 | −$2.64 (10) | −$0.91 (8) |
+| 0.45–0.49 | +$1.28 (26) | −$2.40 (28) |
+| 0.50–0.54 | +$1.62 (6) | −$5.46 (21) |
+| 0.55–0.59 | +$0.61 (3) | +$1.07 (3) |
+| 0.60+ | −$0.50 (2) | −$1.23 (3) |
 
 ---
 
