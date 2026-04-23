@@ -119,6 +119,22 @@ Introduzidas após análise dos 51 trades 15m / 69 trades 5m registrados em 2026
 | 0.55–0.59 | +$0.61 (3) | +$1.07 (3) |
 | 0.60+ | −$0.50 (2) | −$1.23 (3) |
 
+### Desempenho local acumulado (máquina WSL — até 2026-04-23)
+*Nota: este run local rodou com params da versão anterior (disableSignalFlip=false 15m, sem entry filter). 39 trades 15m / 188 trades 5m registrados antes do pull desta versão.*
+
+| Bot | Trades | Win | Loss | Win Rate | PnL |
+|---|---|---|---|---|---|
+| 15m | 39 | 20 | 19 | 51.3% | +$4.96 |
+| 5m | 188 | 92 | 96 | 48.9% | +$15.27 |
+
+### Exit reasons — 5m (local acumulado)
+| Razão | Count |
+|---|---|
+| SETTLED_WIN | 87 |
+| SETTLED_LOSS | 50 |
+| TIME_DECAY | 46 |
+| TAKE_PROFIT | 5 |
+
 ---
 
 ## Snapshot: `2026-04-16_pre-disable-5m-stoploss`
@@ -275,7 +291,9 @@ Introduzidas após análise dos 51 trades 15m / 69 trades 5m registrados em 2026
 | `pre-disable-5m-flip` | 44 | 29.5% | −$2.89 | 119 | 33.6% | +$2.68 |
 | `pre-outcome-api-ptb` | 16 | 25.0% | −$4.44 | 52 | 44.2% | +$2.28 |
 | `pre-disable-5m-stoploss` | 44 | 50.0% | +$11.34 | 71 | 42.3% | +$4.52 |
-| **atual** | 34 | 50.0% | +$4.73 | 105 | 46.7% | +$3.33 |
+| `pre-entry-filter-and-15m-flip-disable` (local) | 39 | 51.3% | +$4.96 | 188 | 48.9% | +$15.27 |
+| `pre-entry-filter-and-15m-flip-disable` (remoto) | 51 | 29.4% | −$1.98 | 69 | 37.7% | −$12.01 |
+| **atual** | — | — | — | — | — | — |
 
 ### Principais decisões estratégicas e aprendizados
 
