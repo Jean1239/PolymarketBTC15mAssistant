@@ -120,7 +120,20 @@ Introduzidas após análise dos 51 trades 15m / 69 trades 5m registrados em 2026
 | 0.60+ | −$0.50 (2) | −$1.23 (3) |
 
 ### Desempenho local acumulado (máquina WSL — até 2026-04-23)
-*Nota: este run local rodou com params da versão anterior (disableSignalFlip=false 15m, sem entry filter). 39 trades 15m / 188 trades 5m registrados antes do pull desta versão.*
+
+**Parâmetros efetivos neste run** (código com defaults 0–1, mas `.env` sobrescrevia):
+| Parâmetro | Valor no .env local |
+|---|---|
+| `TRADE_ENTRY_MIN_PRICE` | **0.40** |
+| `TRADE_ENTRY_MAX_PRICE` | **0.85** |
+| `disableSignalFlip` (15m) | false (default do código antigo) |
+| `disableStopLoss` (5m) | true (hardcoded no config5m) |
+| demais params | defaults do código antigo |
+
+**Por que a diferença de +$18 vs o remoto (−$14)?**
+O remoto rodou sem entry filter (0–1), entrando em todos os preços, inclusive faixas extremas (<0.40 e >0.85) onde o mercado já precificou muita certeza. O local filtrava para 0.40–0.85, evitando essas entradas ruins. O remote 15m acumulou 26 SIGNAL_FLIPs (−$9.21) — muitos vindos de entradas em preços extremos onde o sinal era noise.
+
+**Hipótese para análise futura:** a faixa 0.40–0.85 parece capturar boa parte do alpha sem excesso de trades em zonas de baixa informação. Vale comparar com a nova faixa 0.45–0.58 (mais restritiva) para ver se o ganho de qualidade compensa a perda de volume.
 
 | Bot | Trades | Win | Loss | Win Rate | PnL |
 |---|---|---|---|---|---|
