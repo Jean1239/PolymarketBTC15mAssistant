@@ -3,11 +3,15 @@ services:
     build: .
     container_name: polymarket-bot-15m
     restart: unless-stopped
-    env_file: .env
+    tty: true
+    stdin_open: true
+    env_file:
+      - path: .env
+        required: false
     command: node --max-old-space-size=384 src/index.js
     mem_limit: 512m
     volumes:
-      - ./logs:/app/logs
+      - polymarket_logs:/app/logs
     logging:
       driver: json-file
       options:
@@ -18,13 +22,31 @@ services:
     build: .
     container_name: polymarket-bot-5m
     restart: unless-stopped
-    env_file: .env
+    tty: true
+    stdin_open: true
+    env_file:
+      - path: .env
+        required: false
     command: node --max-old-space-size=384 src/index5m.js
     mem_limit: 512m
     volumes:
-      - ./logs:/app/logs
+      - polymarket_logs:/app/logs
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+
+  reports:
+    build: .
+    container_name: polymarket-reports
+    restart: unless-stopped
+    command: node src/logServer.js
+    ports:
+      - "3456:3456"
+    volumes:
+      - polymarket_logs:/app/logs:ro
+    mem_limit: 128m
+
+volumes:
+  polymarket_logs:

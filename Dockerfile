@@ -8,8 +8,9 @@ RUN npm ci --omit=dev
 
 # Copy source
 COPY src/ ./src/
+COPY scripts/ ./scripts/
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh && mkdir -p logs
 
-# Logs dir (will be overridden by volume mount, but good to have)
-RUN mkdir -p logs
-
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["node", "src/index.js"]
