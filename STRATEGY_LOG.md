@@ -294,19 +294,81 @@ O remoto rodou sem entry filter (0–1), entrando em todos os preços, inclusive
 
 ---
 
-## Resumo comparativo
+## Tabela consolidada — hash × parâmetros × resultados
 
-| Snapshot | 15m Trades | 15m Win% | 15m PnL | 5m Trades | 5m Win% | 5m PnL |
-|---|---|---|---|---|---|---|
-| `pre-cooldown-sl-fix` | 93 | 36.6% | +$2.75 | 395 | 39.2% | +$42.54 |
-| `pre-tightened-exits` | 94 | 34.0% | +$0.64 | 283 | 35.3% | +$28.73 |
-| `pre-telegram-notify` | 19 | 63.2% | +$4.92 | 163 | 32.5% | +$18.82 |
-| `pre-disable-5m-flip` | 44 | 29.5% | −$2.89 | 119 | 33.6% | +$2.68 |
-| `pre-outcome-api-ptb` | 16 | 25.0% | −$4.44 | 52 | 44.2% | +$2.28 |
-| `pre-disable-5m-stoploss` | 44 | 50.0% | +$11.34 | 71 | 42.3% | +$4.52 |
-| `pre-entry-filter-and-15m-flip-disable` (local) | 39 | 51.3% | +$4.96 | 188 | 48.9% | +$15.27 |
-| `pre-entry-filter-and-15m-flip-disable` (remoto) | 51 | 29.4% | −$1.98 | 69 | 37.7% | −$12.01 |
-| **atual** | — | — | — | — | — | — |
+Cada linha = uma versão de código (commit-pai do commit que introduziu a próxima mudança). Os parâmetros refletem os **defaults do código naquele commit** + overrides explícitos no `.env` daquele run. Use para estudar qual combinação de (código + params) produziu cada resultado.
+
+**Legenda:** `flip@X` = `signalFlipMinProb=X`; `CT=N` = `flipConfirmTicks=N`; `CD=Ns` = `flipCooldownS=N`; ⚠ = amostra insuficiente (< 20 trades).
+
+### Parâmetros 15m por versão
+
+| # | Hash | Data | flip | disableFlip | disableSL | SL guards | entry filter | highConvMult | TD |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | `a8e2101` | 07-abr | 0.58 | false | false | 0.58 / 0s | — | — | 1.5m / 5% |
+| 2 | `45170e2` | 13-abr | 0.58 | false | false | 0.65 / 120s | — | — | 1.5m / 5% |
+| 3 | `fe27514` | 14-abr | 0.58 | false | false | 0.65 / 120s | — | — | 1.5m / 5% |
+| 4 | `2c0cbc7` | 15-abr | 0.58 | false | false | 0.65 / 120s | — | — | 1.5m / 5% |
+| 5 | `fa9fc9b` | 15-abr | 0.58 | false | false | 0.65 / 120s | — | — | 1.5m / 5% |
+| 6 | `577d5f4` | 15-abr | 0.58 | false | false | 0.65 / 120s | — | — | 1.5m / 5% |
+| 7 | `83a4a7b` | 15-abr | 0.58 | false | false | 0.65 / 120s | — (+PTB $30) | — | 1.5m / 5% |
+| 8a | `f821b16` (remoto) | 16-abr | 0.58 | false | false | 0.65 / 120s | 0–1 (off) | — | 1.5m / 5% |
+| 8b | `f821b16` + `.env` local | 17-abr | 0.58 | false | false | 0.65 / 120s | **0.40–0.85** | — | 1.5m / 5% |
+| **9** | `d36b3f4` (HEAD) | 24-abr | 0.58 | **true** | false | 0.65 / 120s | **0.45–0.58** | **2×** @ 0.45–0.50 / prob≥0.70 | 1.5m / 5% |
+
+### Parâmetros 5m por versão
+
+| # | Hash | Data | flip | CT | CD | disableFlip | disableSL | entry filter | TD |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | `a8e2101` | 07-abr | 0.58 | 1 | 0s | false | false | — | 1.5m / 5% |
+| 2 | `45170e2` | 13-abr | 0.58 | 3 | 90s | false | false | — | 1.5m / 5% |
+| 3 | `fe27514` | 14-abr | **0.62** | **5** | 90s | false | false | — | 1.5m / 5% |
+| 4 | `2c0cbc7` | 15-abr | 0.62 | 5 | 90s | false | false | — | 1.5m / 5% |
+| 5 | `fa9fc9b` | 15-abr | 0.62 | 5 | 90s | **true** | false | — | 1.5m / 5% |
+| 6 | `577d5f4` | 15-abr | 0.62 | 5 | 90s | true | false | — | 1.5m / 5% |
+| 7 | `83a4a7b` | 15-abr | 0.62 | 5 | 90s | true | false | — (+PTB $30) | 1.5m / 5% |
+| 8a | `f821b16` (remoto) | 16-abr | 0.62 | 5 | 90s | true | **true** | 0–1 (off) | 1.5m / 5% |
+| 8b | `f821b16` + `.env` local | 17-abr | 0.62 | 5 | 90s | true | true | **0.40–0.85** | 1.5m / 5% |
+| **9** | `d36b3f4` (HEAD) | 24-abr | 0.62 | 5 | 90s | true | true | **0.50–0.60** | **2.5m / 15%** |
+
+### Resultados (paper-trading acumulado)
+
+| # | Hash | Principal delta vs anterior | 15m (t / WR / PnL) | 5m (t / WR / PnL) |
+|---|---|---|---|---|
+| 1 | `a8e2101` | **Baseline** — sem cooldown, SL sem guards | 93 / 36.6% / **+$2.75** | 395 / 39.2% / **+$42.54** |
+| 2 | `45170e2` | +SL guards (prob 0.65, duração 120s); +cooldown 60s/90s | 94 / 34.0% / +$0.64 | 283 / 35.3% / **+$28.73** |
+| 3 | `fe27514` | Flip 5m endurecido: 0.58→0.62, CT 3→5 | 19 / 63.2% / +$4.92 ⚠ | 163 / 32.5% / **+$18.82** |
+| 4 | `2c0cbc7` | Sem mudança de estratégia (só Telegram) | 44 / 29.5% / −$2.89 | 119 / 33.6% / +$2.68 |
+| 5 | `fa9fc9b` | **disableSignalFlip=true** (5m) | 2 / 100% / +$1.93 ⚠ | 8 / 37.5% / −$0.44 ⚠ |
+| 6 | `577d5f4` | +late-start guard | 16 / 25.0% / −$4.44 ⚠ | 52 / 44.2% / +$2.28 |
+| 7 | `83a4a7b` | +outcome API settlement, +PTB safe margin $30 | 44 / 50.0% / **+$11.34** | 71 / 42.3% / +$4.52 |
+| 8a | `f821b16` (remoto) | **disableStopLoss=true** (5m); sem entry filter | 51 / 29.4% / −$1.98 | 69 / 37.7% / −$12.01 |
+| 8b | `f821b16` + `.env` local | idem + `.env` override: entry 0.40–0.85 | 39 / 51.3% / **+$4.96** | 188 / 48.9% / **+$15.27** |
+| **9** | `d36b3f4` (HEAD) | entry filter 15m 0.45–0.58 / 5m 0.50–0.60; disableSignalFlip=true (15m); highConvMult=2× (15m); TD 5m 2.5m/15% | **em curso** | **em curso** |
+
+### Observações para fine-tuning
+
+- **Maior 5m PnL absoluto** (v1, +$42.54) veio com params **mais frouxos** (flip@0.58, sem cooldown, sem guards) e **maior volume** (395 trades). Endurecer exits reduziu PnL proporcionalmente mais que o ruído que cortaram.
+- **15m: melhor PnL documentado** foi v7 (+$11.34, 50% WR) — com flip 15m **ainda ON** e PTB guard recém-adicionado. O v9 está desabilitando flip 15m baseado em análise de v8 (51 trades remotos), mas v7 mostra que flip 15m pode funcionar com PTB guard ativo. Candidato a re-testar.
+- **Entry filter 0.40–0.85 (v8b local)** gerou os melhores resultados recentes em ambos os bots. A nova faixa v9 (15m 0.45–0.58 / 5m 0.50–0.60) é bem mais restritiva — vale comparar se o ganho de qualidade supera a perda de volume.
+- **Amostra mínima:** v3 (19 trades 15m), v5 (2 + 8), v6 (16 trades 15m) são ⚠ amostras insuficientes — conclusões a partir delas são ruído.
+- **Rodar ≥ 24h e ≥ 20 trades por bot** antes de comparar novos params com estas linhas.
+
+---
+
+## Resumo comparativo (versão curta)
+
+| # | Hash | 15m Trades | 15m Win% | 15m PnL | 5m Trades | 5m Win% | 5m PnL |
+|---|---|---|---|---|---|---|---|
+| 1 | `a8e2101` | 93 | 36.6% | +$2.75 | 395 | 39.2% | +$42.54 |
+| 2 | `45170e2` | 94 | 34.0% | +$0.64 | 283 | 35.3% | +$28.73 |
+| 3 | `fe27514` | 19 | 63.2% | +$4.92 | 163 | 32.5% | +$18.82 |
+| 4 | `2c0cbc7` | 44 | 29.5% | −$2.89 | 119 | 33.6% | +$2.68 |
+| 5 | `fa9fc9b` | 2 | 100% | +$1.93 | 8 | 37.5% | −$0.44 |
+| 6 | `577d5f4` | 16 | 25.0% | −$4.44 | 52 | 44.2% | +$2.28 |
+| 7 | `83a4a7b` | 44 | 50.0% | +$11.34 | 71 | 42.3% | +$4.52 |
+| 8a | `f821b16` (remoto) | 51 | 29.4% | −$1.98 | 69 | 37.7% | −$12.01 |
+| 8b | `f821b16` + `.env` local | 39 | 51.3% | +$4.96 | 188 | 48.9% | +$15.27 |
+| **9** | `d36b3f4` (HEAD) | — | — | — | — | — | — |
 
 ### Principais decisões estratégicas e aprendizados
 

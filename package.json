@@ -6,7 +6,10 @@
   "scripts": {
     "start": "node --env-file=.env src/index.js",
     "start:5m": "node --env-file=.env src/index5m.js",
-    "report": "node scripts/report.js"
+    "start:dashboard": "node src/logServer.js",
+    "report": "node scripts/report.js",
+    "dashboard:dev": "cd dashboard && npm run dev",
+    "dashboard:build": "cd dashboard && npm run build"
   },
   "dependencies": {
     "@polymarket/clob-client": "^5.8.1",

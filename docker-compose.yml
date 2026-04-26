@@ -37,16 +37,27 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  reports:
+  dashboard:
     build: .
-    container_name: polymarket-reports
+    container_name: polymarket-dashboard
     restart: unless-stopped
     command: node src/logServer.js
+    env_file:
+      - path: .env
+        required: false
     ports:
       - "3456:3456"
     volumes:
       - polymarket_logs:/app/logs:ro
     mem_limit: 128m
+    depends_on:
+      - bot-15m
+      - bot-5m
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
 
 volumes:
   polymarket_logs:
