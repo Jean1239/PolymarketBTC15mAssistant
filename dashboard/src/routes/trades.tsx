@@ -19,8 +19,25 @@ const EXIT_VARIANT: Record<string, "default" | "secondary" | "destructive" | "ou
   SIGNAL_FLIP: "outline",
 }
 
-function fmtTime(iso: string) {
-  return iso.replace("T", " ").slice(0, 16) + "Z"
+const rtf = new Intl.RelativeTimeFormat("pt-BR", { numeric: "auto" })
+
+function relativeTime(iso: string): string {
+  const diffS = (new Date(iso).getTime() - Date.now()) / 1000
+  const abs = Math.abs(diffS)
+  if (abs < 60) return rtf.format(Math.round(diffS), "second")
+  if (abs < 3600) return rtf.format(Math.round(diffS / 60), "minute")
+  if (abs < 86400) return rtf.format(Math.round(diffS / 3600), "hour")
+  return rtf.format(Math.round(diffS / 86400), "day")
+}
+
+function fmtLocalBR(iso: string): string {
+  return new Date(iso).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
 }
 
 function fmtDur(s: number) {
@@ -56,7 +73,10 @@ function TradesTable({ trades }: { trades: Trade[] }) {
               const pnl = t.pnl
               return (
                 <TableRow key={i}>
-                  <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{fmtTime(t.entry_time)}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                    <span className="block font-medium text-foreground">{relativeTime(t.entry_time)}</span>
+                    <span className="block text-[10px] opacity-60">{fmtLocalBR(t.entry_time)}</span>
+                  </TableCell>
                   <TableCell className="text-xs font-mono max-w-[160px] truncate">{t.market_slug}</TableCell>
                   <TableCell>
                     <Badge variant="outline" className={t.side === "UP" ? "text-green-500 border-green-500/30" : "text-red-500 border-red-500/30"}>
