@@ -98,7 +98,7 @@ function BotOverview({ stats, label }: { stats: BotStats; label: string }) {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 3.7% 15.9%)" />
-                <XAxis dataKey="time" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => v.slice(11, 16)} />
+                <XAxis dataKey="time" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => new Date(v).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} />
                 <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => `$${v.toFixed(1)}`} />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <Area type="monotone" dataKey="pnl" stroke="hsl(142 76% 36%)" fill={`url(#grad-${label})`} strokeWidth={2} dot={false} />

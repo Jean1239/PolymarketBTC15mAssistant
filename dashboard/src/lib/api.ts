@@ -121,6 +121,12 @@ export interface LiveResponse {
   "5m": Signal5m | null
 }
 
+export interface LogFile {
+  name: string
+  size: number
+  modified: string
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(path)
   if (!res.ok) throw new Error(`${path} → ${res.status}`)
@@ -132,4 +138,5 @@ export const api = {
   trades15m: () => get<Trade[]>("/api/trades/15m"),
   trades5m: () => get<Trade[]>("/api/trades/5m"),
   live: () => get<LiveResponse>("/api/live"),
+  files: () => get<LogFile[]>("/api/files"),
 }

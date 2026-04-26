@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { createRootRoute, Link, Outlet } from "@tanstack/react-router"
 import { TanStackRouterDevtools } from "@tanstack/router-devtools"
-import { Activity, BarChart3, Menu, Table2, Wifi } from "lucide-react"
+import { Activity, BarChart3, FolderArchive, Menu, Table2, Wifi } from "lucide-react"
 import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
@@ -14,6 +14,7 @@ const navItems = [
   { to: "/", label: "Overview", icon: BarChart3, exact: true },
   { to: "/trades", label: "Trades", icon: Table2, exact: false },
   { to: "/signals", label: "Live Signals", icon: Wifi, exact: false },
+  { to: "/files", label: "Files", icon: FolderArchive, exact: false },
 ]
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {

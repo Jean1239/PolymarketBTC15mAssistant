@@ -1,5 +1,5 @@
 import http from "http";
-import { readFileSync, existsSync, statSync } from "fs";
+import { createReadStream, readFileSync, readdirSync, existsSync, statSync } from "fs";
 import { readdir } from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -9,6 +9,74 @@ const ROOT = path.resolve(__dirname, "..");
 const LOGS_DIR = path.join(ROOT, "logs");
 const DIST_DIR = path.join(ROOT, "dashboard", "dist");
 const PORT = process.env.LOG_SERVER_PORT ?? 3456;
+
+// ── ZIP builder (no external deps, STORE mode) ───────────────────────────────
+
+const CRC32_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let j = 0; j < 8; j++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+    t[i] = c;
+  }
+  return t;
+})();
+
+function crc32buf(buf) {
+  let c = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) c = CRC32_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function buildZip(entries) {
+  const parts = [];
+  const cds = [];
+  let off = 0;
+  for (const { name, data, mtime } of entries) {
+    const nb = Buffer.from(name, "utf8");
+    const d = mtime instanceof Date ? mtime : new Date();
+    const dt = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+    const tm = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+    const crc = crc32buf(data);
+    const sz = data.length;
+
+    const lh = Buffer.alloc(30 + nb.length);
+    lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(20, 4); lh.writeUInt16LE(0, 6);
+    lh.writeUInt16LE(0, 8); lh.writeUInt16LE(tm, 10); lh.writeUInt16LE(dt, 12);
+    lh.writeUInt32LE(crc, 14); lh.writeUInt32LE(sz, 18); lh.writeUInt32LE(sz, 22);
+    lh.writeUInt16LE(nb.length, 26); lh.writeUInt16LE(0, 28); nb.copy(lh, 30);
+    parts.push(lh, data);
+
+    const cd = Buffer.alloc(46 + nb.length);
+    cd.writeUInt32LE(0x02014b50, 0); cd.writeUInt16LE(20, 4); cd.writeUInt16LE(20, 6);
+    cd.writeUInt16LE(0, 8); cd.writeUInt16LE(0, 10); cd.writeUInt16LE(tm, 12);
+    cd.writeUInt16LE(dt, 14); cd.writeUInt32LE(crc, 16); cd.writeUInt32LE(sz, 20);
+    cd.writeUInt32LE(sz, 24); cd.writeUInt16LE(nb.length, 28); cd.writeUInt16LE(0, 30);
+    cd.writeUInt16LE(0, 32); cd.writeUInt16LE(0, 34); cd.writeUInt16LE(0, 36);
+    cd.writeUInt32LE(0, 38); cd.writeUInt32LE(off, 42); nb.copy(cd, 46);
+    cds.push(cd);
+    off += lh.length + sz;
+  }
+  const cdBuf = Buffer.concat(cds);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0); eocd.writeUInt16LE(0, 4); eocd.writeUInt16LE(0, 6);
+  eocd.writeUInt16LE(entries.length, 8); eocd.writeUInt16LE(entries.length, 10);
+  eocd.writeUInt32LE(cdBuf.length, 12); eocd.writeUInt32LE(off, 16); eocd.writeUInt16LE(0, 20);
+  return Buffer.concat([...parts, cdBuf, eocd]);
+}
+
+const ZIP_MAX_FILE_BYTES = 50 * 1024 * 1024; // skip files > 50 MB in ZIP
+const LOG_EXTS = new Set([".csv", ".json", ".log"]);
+
+function listLogFiles() {
+  return readdirSync(LOGS_DIR, { withFileTypes: true })
+    .filter((d) => d.isFile() && LOG_EXTS.has(path.extname(d.name)))
+    .map((d) => {
+      const st = statSync(path.join(LOGS_DIR, d.name));
+      return { name: d.name, size: st.size, modified: st.mtime.toISOString() };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
 
 // ── CSV parsing ──────────────────────────────────────────────────────────────
 
@@ -258,6 +326,50 @@ const server = http.createServer((req, res) => {
         "15m": rows15.length ? rows15[rows15.length - 1] : null,
         "5m": rows5.length ? rows5[rows5.length - 1] : null,
       });
+    }
+
+    if (p === "/api/files") {
+      return json(res, listLogFiles());
+    }
+
+    if (p === "/api/files/download") {
+      const name = url.searchParams.get("name") ?? "";
+      if (!name || name.includes("/") || name.includes("\\") || name.startsWith(".")) {
+        res.writeHead(400); res.end("Invalid filename"); return;
+      }
+      const fp = path.join(LOGS_DIR, name);
+      if (!existsSync(fp) || statSync(fp).isDirectory()) { res.writeHead(404); res.end("Not found"); return; }
+      const st = statSync(fp);
+      const extMime = { ".csv": "text/csv", ".json": "application/json", ".log": "text/plain" };
+      res.writeHead(200, {
+        "Content-Type": extMime[path.extname(name)] ?? "application/octet-stream",
+        "Content-Disposition": `attachment; filename="${name}"`,
+        "Content-Length": st.size,
+        "Cache-Control": "no-store",
+        "Access-Control-Allow-Origin": "*",
+      });
+      createReadStream(fp).pipe(res);
+      return;
+    }
+
+    if (p === "/api/files/zip") {
+      const files = listLogFiles().filter((f) => f.size <= ZIP_MAX_FILE_BYTES);
+      const entries = files.map(({ name, modified }) => ({
+        name,
+        data: readFileSync(path.join(LOGS_DIR, name)),
+        mtime: new Date(modified),
+      }));
+      const zip = buildZip(entries);
+      const date = new Date().toISOString().slice(0, 10);
+      res.writeHead(200, {
+        "Content-Type": "application/zip",
+        "Content-Disposition": `attachment; filename="polymarket-logs-${date}.zip"`,
+        "Content-Length": zip.length,
+        "Cache-Control": "no-store",
+        "Access-Control-Allow-Origin": "*",
+      });
+      res.end(zip);
+      return;
     }
 
     if (p.startsWith("/api/")) {

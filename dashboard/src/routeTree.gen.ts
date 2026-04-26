@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TradesRouteImport } from './routes/trades'
 import { Route as SignalsRouteImport } from './routes/signals'
+import { Route as FilesRouteImport } from './routes/files'
 import { Route as IndexRouteImport } from './routes/index'
 
 const TradesRoute = TradesRouteImport.update({
@@ -23,6 +24,11 @@ const SignalsRoute = SignalsRouteImport.update({
   path: '/signals',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FilesRoute = FilesRouteImport.update({
+  id: '/files',
+  path: '/files',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -31,30 +37,34 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/files': typeof FilesRoute
   '/signals': typeof SignalsRoute
   '/trades': typeof TradesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/files': typeof FilesRoute
   '/signals': typeof SignalsRoute
   '/trades': typeof TradesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/files': typeof FilesRoute
   '/signals': typeof SignalsRoute
   '/trades': typeof TradesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/signals' | '/trades'
+  fullPaths: '/' | '/files' | '/signals' | '/trades'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/signals' | '/trades'
-  id: '__root__' | '/' | '/signals' | '/trades'
+  to: '/' | '/files' | '/signals' | '/trades'
+  id: '__root__' | '/' | '/files' | '/signals' | '/trades'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  FilesRoute: typeof FilesRoute
   SignalsRoute: typeof SignalsRoute
   TradesRoute: typeof TradesRoute
 }
@@ -75,6 +85,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SignalsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/files': {
+      id: '/files'
+      path: '/files'
+      fullPath: '/files'
+      preLoaderRoute: typeof FilesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -87,6 +104,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  FilesRoute: FilesRoute,
   SignalsRoute: SignalsRoute,
   TradesRoute: TradesRoute,
 }
