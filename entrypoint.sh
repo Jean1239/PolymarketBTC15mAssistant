@@ -4,7 +4,22 @@
 TIMESTAMP=$(date -u +%Y%m%d_%H%M%S)
 mkdir -p /app/logs/archive
 
-for f in signals.csv signals_5m.csv dryrun_15m.csv dryrun_5m.csv; do
+# Rotate only the files owned by this bot, determined by the command argument.
+# bot-15m (index.js): signals.csv + dryrun_15m.csv
+# bot-5m (index5m.js): signals_5m.csv + dryrun_5m.csv
+case "$*" in
+  *index5m*)
+    FILES="signals_5m.csv dryrun_5m.csv"
+    ;;
+  *index*)
+    FILES="signals.csv dryrun_15m.csv"
+    ;;
+  *)
+    FILES=""
+    ;;
+esac
+
+for f in $FILES; do
   if [ -f "/app/logs/$f" ]; then
     gzip -c "/app/logs/$f" > "/app/logs/archive/${TIMESTAMP}_${f}.gz"
     rm "/app/logs/$f"

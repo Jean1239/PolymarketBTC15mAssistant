@@ -1,7 +1,7 @@
 import { useState, useEffect, type ReactNode } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
-import { Wifi, WifiOff } from "lucide-react"
+import { Wifi, WifiOff, Clock } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -27,6 +27,12 @@ function fmtTimeLeft(min: number) {
   const totalS = Math.round(min * 60)
   if (totalS < 60) return `${totalS}s`
   return `${Math.floor(totalS / 60)}m${String(totalS % 60).padStart(2, "0")}s`
+}
+
+function fmtStale(staleS: number) {
+  if (staleS < 60) return `${staleS}s atrás`
+  if (staleS < 3600) return `${Math.floor(staleS / 60)}m atrás`
+  return `${Math.floor(staleS / 3600)}h atrás`
 }
 
 function ProbBar({ label, value, color }: { label: string; value: number; color: string }) {
@@ -84,14 +90,26 @@ function SimStatus({ action, side, roi, cumPnl }: { action: string; side: string
   )
 }
 
-function Signal15mCard({ s, elapsedMin }: { s: Signal15m; elapsedMin: number }) {
+function Signal15mCard({ s, now }: { s: Signal15m; now: number }) {
+  const tickMs = new Date(s.timestamp).getTime()
+  const elapsedMin = (now - tickMs) / 60000
   const timeLeft = Math.max(0, s.time_left_min - elapsedMin)
+  const staleS = Math.round((now - tickMs) / 1000)
+  const isStale = staleS > 15
+
   return (
-    <Card>
+    <Card className={isStale ? "opacity-60" : ""}>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2 min-w-0">
           <CardTitle className="text-sm shrink-0">15-minute bot</CardTitle>
-          <span className="text-xs text-muted-foreground font-mono text-right">{fmtTs(s.timestamp)}</span>
+          <div className="flex items-center gap-1.5 min-w-0">
+            {isStale && (
+              <span className="flex items-center gap-1 text-xs text-yellow-500 shrink-0">
+                <Clock className="h-3 w-3" />{fmtStale(staleS)}
+              </span>
+            )}
+            <span className="text-xs text-muted-foreground font-mono text-right">{fmtTs(s.timestamp)}</span>
+          </div>
         </div>
         <p className="text-xs text-muted-foreground font-mono truncate">{s.market_slug}</p>
       </CardHeader>
@@ -131,14 +149,26 @@ function Signal15mCard({ s, elapsedMin }: { s: Signal15m; elapsedMin: number }) 
   )
 }
 
-function Signal5mCard({ s, elapsedMin }: { s: Signal5m; elapsedMin: number }) {
+function Signal5mCard({ s, now }: { s: Signal5m; now: number }) {
+  const tickMs = new Date(s.timestamp).getTime()
+  const elapsedMin = (now - tickMs) / 60000
   const timeLeft = Math.max(0, s.time_left_min - elapsedMin)
+  const staleS = Math.round((now - tickMs) / 1000)
+  const isStale = staleS > 15
+
   return (
-    <Card>
+    <Card className={isStale ? "opacity-60" : ""}>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2 min-w-0">
           <CardTitle className="text-sm shrink-0">5-minute bot</CardTitle>
-          <span className="text-xs text-muted-foreground font-mono text-right">{fmtTs(s.timestamp)}</span>
+          <div className="flex items-center gap-1.5 min-w-0">
+            {isStale && (
+              <span className="flex items-center gap-1 text-xs text-yellow-500 shrink-0">
+                <Clock className="h-3 w-3" />{fmtStale(staleS)}
+              </span>
+            )}
+            <span className="text-xs text-muted-foreground font-mono text-right">{fmtTs(s.timestamp)}</span>
+          </div>
         </div>
         <p className="text-xs text-muted-foreground font-mono truncate">{s.market_slug}</p>
       </CardHeader>
@@ -195,8 +225,6 @@ function SignalsPage() {
     return () => clearInterval(id)
   }, [])
 
-  const elapsedMin = dataUpdatedAt ? (now - dataUpdatedAt) / 60000 : 0
-
   const lastUpdate = dataUpdatedAt
     ? new Date(dataUpdatedAt).toLocaleTimeString("pt-BR")
     : null
@@ -213,8 +241,8 @@ function SignalsPage() {
 
       {data && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {data["15m"] ? <Signal15mCard s={data["15m"]} elapsedMin={elapsedMin} /> : <Card><CardContent className="p-6 text-muted-foreground text-sm">15m bot offline</CardContent></Card>}
-          {data["5m"] ? <Signal5mCard s={data["5m"]} elapsedMin={elapsedMin} /> : <Card><CardContent className="p-6 text-muted-foreground text-sm">5m bot offline</CardContent></Card>}
+          {data["15m"] ? <Signal15mCard s={data["15m"]} now={now} /> : <Card><CardContent className="p-6 text-muted-foreground text-sm">15m bot offline</CardContent></Card>}
+          {data["5m"] ? <Signal5mCard s={data["5m"]} now={now} /> : <Card><CardContent className="p-6 text-muted-foreground text-sm">5m bot offline</CardContent></Card>}
         </div>
       )}
     </div>

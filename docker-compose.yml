@@ -38,10 +38,11 @@ services:
         max-file: "3"
 
   dashboard:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
     container_name: polymarket-dashboard
     restart: unless-stopped
-    command: node src/logServer.js
     env_file:
       - path: .env
         required: false

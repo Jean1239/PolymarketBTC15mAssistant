@@ -255,14 +255,16 @@ function createSimulator(csvPath, header, config, label = "bot") {
     _resetPos();
   }
 
-  function _flush() {
+  // partial=true → mid-market flush for the live dashboard; outcome/btc_at_settlement
+  // are retroactive and only filled on the final flush (market change or exit).
+  function _flush(partial = false) {
     if (buffer.length === 0) return;
 
     _ensureHeader(csvPath, header);
 
     const ptb = lastPriceToBeat;
     const btcFinal = lastBtcPrice;
-    const canCompute = ptb !== null && btcFinal !== null;
+    const canCompute = !partial && ptb !== null && btcFinal !== null;
     const outcome = canCompute ? (btcFinal > ptb ? "UP" : "DOWN") : null;
 
     const lines = buffer.map(({ dataValues, ptbCols, simCols }) => {
@@ -271,7 +273,7 @@ function createSimulator(csvPath, header, config, label = "bot") {
         ...ptbCols,
         ...simCols,
         outcome ?? "",
-        btcFinal !== null ? fmt(btcFinal, 2) : "",
+        canCompute ? fmt(btcFinal, 2) : "",
       ]);
     });
 
@@ -437,6 +439,11 @@ function createSimulator(csvPath, header, config, label = "bot") {
     ];
 
     buffer.push({ dataValues, ptbCols: [fmt(tickPtb, 2), fmt(tickBtcVsPtb, 2)], simCols });
+
+    // Flush every 5 ticks so the live dashboard always has fresh data.
+    // outcome/btc_at_settlement are left blank on partial flushes and only
+    // filled on the final flush (market change or process exit).
+    if (buffer.length >= 5) _flush(true);
   }
 
   /** Flush current buffer immediately (call on process exit). */
