@@ -77,6 +77,7 @@ export interface Signal15m {
   sim_exit_reason: string
   sim_pnl: number | null
   sim_cum_pnl: number
+  sim_invested: number | null
 }
 
 export interface Signal5m {
@@ -112,6 +113,7 @@ export interface Signal5m {
   sim_exit_reason: string
   sim_pnl: number | null
   sim_cum_pnl: number
+  sim_invested: number | null
 }
 
 export interface LiveResponse {

@@ -65,10 +65,18 @@ function recColor(rec: string) {
   return "text-yellow-500"
 }
 
-function SimStatus({ action, side, roi, cumPnl }: { action: string; side: string; roi: number | null; cumPnl: number }) {
+function SimStatus({ action, side, roi, pnl, entryPrice, invested, cumPnl }: {
+  action: string
+  side: string
+  roi: number | null
+  pnl: number | null
+  entryPrice: number | null
+  invested: number | null
+  cumPnl: number
+}) {
   const isHolding = action === "HOLD" || action === "BUY"
   return (
-    <div className="rounded-md bg-muted/50 p-3">
+    <div className="rounded-md bg-muted/50 p-3 space-y-1">
       <div className="flex items-center justify-between gap-2 text-xs font-medium">
         <div className="flex items-center gap-2">
           <Badge variant={isHolding ? "default" : "secondary"} className="text-xs">{action}</Badge>
@@ -80,7 +88,20 @@ function SimStatus({ action, side, roi, cumPnl }: { action: string; side: string
           </span>
         )}
       </div>
-      <p className="text-xs text-muted-foreground mt-1">
+      {isHolding && (entryPrice !== null || pnl !== null || invested !== null) && (
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          {entryPrice !== null && (
+            <span>Entry: <span className="font-mono text-foreground">{entryPrice.toFixed(2)}</span></span>
+          )}
+          {invested !== null && (
+            <span>Inv: <span className="font-mono text-foreground">${invested.toFixed(2)}</span></span>
+          )}
+          {pnl !== null && (
+            <span>P&L: <span className={`font-mono ${pnl >= 0 ? "text-green-500" : "text-red-500"}`}>{pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}</span></span>
+          )}
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground">
         Cum. P&L:{" "}
         <span className={`font-mono ${cumPnl >= 0 ? "text-green-500" : "text-red-500"}`}>
           {cumPnl >= 0 ? "+" : ""}${cumPnl.toFixed(2)}
@@ -143,7 +164,7 @@ function Signal15mCard({ s, now }: { s: Signal15m; now: number }) {
         </div>
 
         <Separator />
-        <SimStatus action={s.sim_action} side={s.sim_side} roi={s.sim_roi_pct} cumPnl={s.sim_cum_pnl} />
+        <SimStatus action={s.sim_action} side={s.sim_side} roi={s.sim_roi_pct} pnl={s.sim_pnl} entryPrice={s.sim_entry_price} invested={s.sim_invested} cumPnl={s.sim_cum_pnl} />
       </CardContent>
     </Card>
   )
@@ -206,7 +227,7 @@ function Signal5mCard({ s, now }: { s: Signal5m; now: number }) {
         </div>
 
         <Separator />
-        <SimStatus action={s.sim_action} side={s.sim_side} roi={s.sim_roi_pct} cumPnl={s.sim_cum_pnl} />
+        <SimStatus action={s.sim_action} side={s.sim_side} roi={s.sim_roi_pct} pnl={s.sim_pnl} entryPrice={s.sim_entry_price} invested={s.sim_invested} cumPnl={s.sim_cum_pnl} />
       </CardContent>
     </Card>
   )

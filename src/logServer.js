@@ -70,6 +70,7 @@ function coerceSignals15m(rows) {
     sim_roi_pct: parseNum(r.sim_roi_pct),
     sim_pnl: parseNum(r.sim_pnl),
     sim_cum_pnl: parseNum(r.sim_cum_pnl) ?? 0,
+    sim_invested: parseNum(r.sim_invested),
   }));
 }
 
@@ -99,6 +100,7 @@ function coerceSignals5m(rows) {
     sim_roi_pct: parseNum(r.sim_roi_pct),
     sim_pnl: parseNum(r.sim_pnl),
     sim_cum_pnl: parseNum(r.sim_cum_pnl) ?? 0,
+    sim_invested: parseNum(r.sim_invested),
   }));
 }
 

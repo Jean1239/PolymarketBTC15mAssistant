@@ -33,7 +33,7 @@ const PTB_COLS = ["price_to_beat", "btc_vs_ptb"];
 
 const SIM_COLS = [
   "sim_action", "sim_side", "sim_entry_price", "sim_current_price",
-  "sim_roi_pct", "sim_exit_reason", "sim_pnl", "sim_cum_pnl",
+  "sim_roi_pct", "sim_exit_reason", "sim_pnl", "sim_cum_pnl", "sim_invested",
 ];
 
 const OUTCOME_COLS = ["outcome", "btc_at_settlement"];
@@ -320,6 +320,7 @@ function createSimulator(csvPath, header, config, label = "bot") {
     let simRoiPct = "";
     let simExitReason = "";
     let simPnl = "";
+    let simInvested = "";
 
     if (pos.active) {
       const currentMktPrice = pos.side === "UP" ? marketUp : marketDown;
@@ -375,6 +376,7 @@ function createSimulator(csvPath, header, config, label = "bot") {
         simEntryPrice = fmt(pos.entryPrice, 4);
         simCurrentPrice = currentMktPrice != null ? fmt(currentMktPrice, 4) : "";
         simRoiPct = exitEval.roiPct != null ? fmt(exitEval.roiPct, 2) : "";
+        simInvested = fmt(pos.invested, 2);
       }
     } else if (rec.action === "ENTER" && rec.side && sawMarketStart) {
       // ── BUY — skip if late start or still within post-flip cooldown ────
@@ -418,6 +420,7 @@ function createSimulator(csvPath, header, config, label = "bot") {
         simEntryPrice = fmt(entryMktPrice, 4);
         simCurrentPrice = fmt(entryMktPrice, 4);
         simRoiPct = "0.00";
+        simInvested = fmt(invested, 2);
 
         notifyTrade({
           bot: label, isLive: false, action: "BUY",
@@ -436,6 +439,7 @@ function createSimulator(csvPath, header, config, label = "bot") {
       simExitReason,
       simPnl,
       fmt(cumulativePnl, 4),
+      simInvested,
     ];
 
     buffer.push({ dataValues, ptbCols: [fmt(tickPtb, 2), fmt(tickBtcVsPtb, 2)], simCols });
