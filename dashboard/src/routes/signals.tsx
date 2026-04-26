@@ -32,9 +32,9 @@ function ProbBar({ label, value, color }: { label: string; value: number; color:
 
 function Kv({ label, value, mono = false }: { label: string; value: ReactNode; mono?: boolean }) {
   return (
-    <div className="flex justify-between items-center py-1 text-sm">
-      <span className="text-muted-foreground text-xs">{label}</span>
-      <span className={`font-medium text-xs ${mono ? "font-mono" : ""}`}>{value}</span>
+    <div className="flex justify-between items-center gap-2 py-1 text-sm min-w-0">
+      <span className="text-muted-foreground text-xs shrink-0">{label}</span>
+      <span className={`font-medium text-xs text-right min-w-0 ${mono ? "font-mono" : ""}`}>{value}</span>
     </div>
   )
 }
@@ -49,16 +49,21 @@ function SimStatus({ action, side, roi, cumPnl }: { action: string; side: string
   const isHolding = action === "HOLD" || action === "BUY"
   return (
     <div className="rounded-md bg-muted/50 p-3 space-y-1">
-      <div className="flex items-center gap-2 text-xs font-medium">
-        <Badge variant={isHolding ? "default" : "secondary"} className="text-xs">{action}</Badge>
+      <div className="flex items-center gap-2 flex-wrap text-xs font-medium">
+        <Badge variant={isHolding ? "default" : "secondary"} className="text-xs shrink-0">{action}</Badge>
         {side && <span className={side === "UP" ? "text-green-500" : "text-red-500"}>{side}</span>}
         {roi !== null && (
-          <span className={`ml-auto font-mono ${roi >= 0 ? "text-green-500" : "text-red-500"}`}>
+          <span className={`ml-auto font-mono shrink-0 ${roi >= 0 ? "text-green-500" : "text-red-500"}`}>
             {roi >= 0 ? "+" : ""}{roi.toFixed(1)}%
           </span>
         )}
       </div>
-      <p className="text-xs text-muted-foreground">Cum. P&L: <span className={`font-mono ${cumPnl >= 0 ? "text-green-500" : "text-red-500"}`}>{cumPnl >= 0 ? "+" : ""}${cumPnl.toFixed(2)}</span></p>
+      <p className="text-xs text-muted-foreground">
+        Cum. P&L:{" "}
+        <span className={`font-mono ${cumPnl >= 0 ? "text-green-500" : "text-red-500"}`}>
+          {cumPnl >= 0 ? "+" : ""}${cumPnl.toFixed(2)}
+        </span>
+      </p>
     </div>
   )
 }
@@ -67,17 +72,17 @@ function Signal15mCard({ s }: { s: Signal15m }) {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm">15-minute bot</CardTitle>
-          <span className="text-xs text-muted-foreground font-mono">{fmtTs(s.timestamp)}</span>
+        <div className="flex items-start justify-between gap-2 min-w-0">
+          <CardTitle className="text-sm shrink-0">15-minute bot</CardTitle>
+          <span className="text-xs text-muted-foreground font-mono text-right break-all">{fmtTs(s.timestamp)}</span>
         </div>
         <p className="text-xs text-muted-foreground font-mono truncate">{s.market_slug}</p>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex items-center gap-3">
-          <span className={`text-lg font-bold ${recColor(s.rec_detail)}`}>{s.rec_detail}</span>
-          <Badge variant="outline" className="text-xs">{s.regime}</Badge>
-          <span className="text-xs text-muted-foreground ml-auto">{s.time_left_min.toFixed(1)}m left</span>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`text-lg font-bold shrink-0 ${recColor(s.rec_detail)}`}>{s.rec_detail}</span>
+          <Badge variant="outline" className="text-xs shrink-0">{s.regime}</Badge>
+          <span className="text-xs text-muted-foreground ml-auto shrink-0">{s.time_left_min.toFixed(1)}m left</span>
         </div>
 
         <div className="space-y-2">
@@ -87,7 +92,7 @@ function Signal15mCard({ s }: { s: Signal15m }) {
 
         <Separator />
 
-        <div className="grid grid-cols-2 gap-x-6">
+        <div className="grid grid-cols-2 gap-x-4">
           <div>
             <Kv label="Market UP" value={`${(s.market_up * 100).toFixed(0)}¢`} mono />
             <Kv label="Market DOWN" value={`${(s.market_down * 100).toFixed(0)}¢`} mono />
@@ -117,19 +122,19 @@ function Signal5mCard({ s }: { s: Signal5m }) {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm">5-minute bot</CardTitle>
-          <span className="text-xs text-muted-foreground font-mono">{fmtTs(s.timestamp)}</span>
+        <div className="flex items-start justify-between gap-2 min-w-0">
+          <CardTitle className="text-sm shrink-0">5-minute bot</CardTitle>
+          <span className="text-xs text-muted-foreground font-mono text-right break-all">{fmtTs(s.timestamp)}</span>
         </div>
         <p className="text-xs text-muted-foreground font-mono truncate">{s.market_slug}</p>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex items-center gap-3">
-          <span className={`text-lg font-bold ${recColor(s.rec_detail)}`}>{s.rec_detail}</span>
-          <Badge variant="outline" className={s.ema_cross !== "NONE" ? "text-blue-400 border-blue-400/30 text-xs" : "text-xs"}>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`text-lg font-bold shrink-0 ${recColor(s.rec_detail)}`}>{s.rec_detail}</span>
+          <Badge variant="outline" className={s.ema_cross !== "NONE" ? "text-blue-400 border-blue-400/30 text-xs shrink-0" : "text-xs shrink-0"}>
             EMA {s.ema_cross}
           </Badge>
-          <span className="text-xs text-muted-foreground ml-auto">{s.time_left_min.toFixed(1)}m left</span>
+          <span className="text-xs text-muted-foreground ml-auto shrink-0">{s.time_left_min.toFixed(1)}m left</span>
         </div>
 
         <div className="space-y-2">
@@ -139,7 +144,7 @@ function Signal5mCard({ s }: { s: Signal5m }) {
 
         <Separator />
 
-        <div className="grid grid-cols-2 gap-x-6">
+        <div className="grid grid-cols-2 gap-x-4">
           <div>
             <Kv label="Market UP" value={`${(s.market_up * 100).toFixed(0)}¢`} mono />
             <Kv label="Market DOWN" value={`${(s.market_down * 100).toFixed(0)}¢`} mono />
@@ -177,11 +182,11 @@ function SignalsPage() {
   const lastUpdate = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString() : null
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center gap-2">
-        {isLoading ? <WifiOff className="h-5 w-5 text-muted-foreground" /> : <Wifi className="h-5 w-5 text-green-500" />}
+    <div className="p-4 md:p-6 space-y-6">
+      <div className="flex items-center gap-2 flex-wrap">
+        {isLoading ? <WifiOff className="h-5 w-5 text-muted-foreground shrink-0" /> : <Wifi className="h-5 w-5 text-green-500 shrink-0" />}
         <h1 className="text-lg font-semibold">Live Signals</h1>
-        {lastUpdate && <span className="text-xs text-muted-foreground ml-2">updated {lastUpdate}</span>}
+        {lastUpdate && <span className="text-xs text-muted-foreground">updated {lastUpdate}</span>}
       </div>
 
       {isLoading && <p className="text-muted-foreground text-sm">Connecting…</p>}
