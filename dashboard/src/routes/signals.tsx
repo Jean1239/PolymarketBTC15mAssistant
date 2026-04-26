@@ -98,7 +98,7 @@ function Signal15mCard({ s, now }: { s: Signal15m; now: number }) {
   const isStale = staleS > 15
 
   return (
-    <Card className={isStale ? "opacity-60" : ""}>
+    <Card className={`flex flex-col h-full${isStale ? " opacity-60" : ""}`}>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2 min-w-0">
           <CardTitle className="text-sm shrink-0">15-minute bot</CardTitle>
@@ -113,7 +113,7 @@ function Signal15mCard({ s, now }: { s: Signal15m; now: number }) {
         </div>
         <p className="text-xs text-muted-foreground font-mono truncate">{s.market_slug}</p>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="flex flex-col flex-1 gap-4">
         <div className="flex items-center gap-2 flex-wrap">
           <span className={`text-lg font-bold shrink-0 ${recColor(s.rec_detail)}`}>{s.rec_detail}</span>
           <Badge variant="outline" className="text-xs shrink-0">{s.regime}</Badge>
@@ -142,6 +142,7 @@ function Signal15mCard({ s, now }: { s: Signal15m; now: number }) {
           </div>
         </div>
 
+        <div className="flex-1" />
         <Separator />
         <SimStatus action={s.sim_action} side={s.sim_side} roi={s.sim_roi_pct} cumPnl={s.sim_cum_pnl} />
       </CardContent>
@@ -157,7 +158,7 @@ function Signal5mCard({ s, now }: { s: Signal5m; now: number }) {
   const isStale = staleS > 15
 
   return (
-    <Card className={isStale ? "opacity-60" : ""}>
+    <Card className={`flex flex-col h-full${isStale ? " opacity-60" : ""}`}>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2 min-w-0">
           <CardTitle className="text-sm shrink-0">5-minute bot</CardTitle>
@@ -172,7 +173,7 @@ function Signal5mCard({ s, now }: { s: Signal5m; now: number }) {
         </div>
         <p className="text-xs text-muted-foreground font-mono truncate">{s.market_slug}</p>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="flex flex-col flex-1 gap-4">
         <div className="flex items-center gap-2 flex-wrap">
           <span className={`text-lg font-bold shrink-0 ${recColor(s.rec_detail)}`}>{s.rec_detail}</span>
           <Badge variant="outline" className={s.ema_cross !== "NONE" ? "text-blue-400 border-blue-400/30 text-xs shrink-0" : "text-xs shrink-0"}>
@@ -205,6 +206,7 @@ function Signal5mCard({ s, now }: { s: Signal5m; now: number }) {
           </div>
         </div>
 
+        <div className="flex-1" />
         <Separator />
         <SimStatus action={s.sim_action} side={s.sim_side} roi={s.sim_roi_pct} cumPnl={s.sim_cum_pnl} />
       </CardContent>
