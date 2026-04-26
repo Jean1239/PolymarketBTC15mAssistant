@@ -53,12 +53,13 @@ function TradesTable({ trades }: { trades: Trade[] }) {
   return (
     <div className="overflow-x-auto rounded-md border border-border">
       <div className="overflow-y-auto max-h-[calc(100svh-230px)]">
-        <Table className="min-w-[700px]">
+        <Table className="min-w-[800px]">
           <TableHeader>
             <TableRow>
               <TableHead>Entry</TableHead>
               <TableHead>Market</TableHead>
               <TableHead>Side</TableHead>
+              <TableHead className="text-right">Invested</TableHead>
               <TableHead className="text-right">Entry $</TableHead>
               <TableHead className="text-right">Exit $</TableHead>
               <TableHead className="text-right">ROI</TableHead>
@@ -83,6 +84,7 @@ function TradesTable({ trades }: { trades: Trade[] }) {
                       {t.side}
                     </Badge>
                   </TableCell>
+                  <TableCell className="text-right tabular-nums">${(+t.invested).toFixed(2)}</TableCell>
                   <TableCell className="text-right tabular-nums">{(+t.entry_price).toFixed(2)}</TableCell>
                   <TableCell className="text-right tabular-nums">{(+t.exit_price).toFixed(2)}</TableCell>
                   <TableCell className={`text-right tabular-nums font-medium ${roi >= 0 ? "text-green-500" : "text-red-500"}`}>
