@@ -36,10 +36,10 @@ function StatCard({ title, value, sub, positive }: { title: string; value: strin
         <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{title}</CardTitle>
       </CardHeader>
       <CardContent>
-        <p className={`text-2xl font-bold tabular-nums ${positive === true ? "text-green-500" : positive === false ? "text-red-500" : ""}`}>
+        <p className={`text-xl sm:text-2xl font-bold tabular-nums truncate ${positive === true ? "text-green-500" : positive === false ? "text-red-500" : ""}`}>
           {value}
         </p>
-        {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
+        {sub && <p className="text-xs text-muted-foreground mt-1 truncate">{sub}</p>}
       </CardContent>
     </Card>
   )
@@ -116,7 +116,7 @@ function BotOverview({ stats, label }: { stats: BotStats; label: string }) {
               <BarChart data={exitReasonData} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 3.7% 15.9%)" horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
-                <YAxis dataKey="reason" type="category" tick={{ fontSize: 9 }} tickLine={false} axisLine={false} width={80} />
+                <YAxis dataKey="reason" type="category" tick={{ fontSize: 8 }} tickLine={false} axisLine={false} width={72} />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <Bar dataKey="count" radius={3}>
                   {exitReasonData.map((entry) => (
@@ -161,11 +161,11 @@ function OverviewPage() {
   if (error || !data) return <div className="p-8 text-red-500">Failed to load stats.</div>
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center gap-2">
-        <Activity className="h-5 w-5" />
+    <div className="p-4 md:p-6 space-y-6">
+      <div className="flex items-center gap-2 flex-wrap">
+        <Activity className="h-5 w-5 shrink-0" />
         <h1 className="text-lg font-semibold">Overview</h1>
-        <span className="text-xs text-muted-foreground ml-2">refreshes every 30s</span>
+        <span className="text-xs text-muted-foreground">refreshes every 30s</span>
       </div>
 
       <Tabs defaultValue="15m">
