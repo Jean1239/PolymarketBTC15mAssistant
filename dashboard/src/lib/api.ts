@@ -133,10 +133,21 @@ async function get<T>(path: string): Promise<T> {
   return res.json() as Promise<T>
 }
 
+export interface ClearLogsResult {
+  ok: boolean
+  cleared: string[]
+  archive: string
+}
+
 export const api = {
   stats: () => get<StatsResponse>("/api/stats"),
   trades15m: () => get<Trade[]>("/api/trades/15m"),
   trades5m: () => get<Trade[]>("/api/trades/5m"),
   live: () => get<LiveResponse>("/api/live"),
   files: () => get<LogFile[]>("/api/files"),
+  clearLogs: () =>
+    fetch("/api/logs/clear", { method: "POST" }).then((r) => {
+      if (!r.ok) throw new Error(`/api/logs/clear → ${r.status}`)
+      return r.json() as Promise<ClearLogsResult>
+    }),
 }

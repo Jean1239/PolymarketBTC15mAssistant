@@ -52,6 +52,12 @@ export async function processActionQueue(actionQueue, { trading, poly, rec, time
         setStatusMessage(`Entrada bloqueada — preço ${(entryMktPriceCheck * 100).toFixed(1)}¢ fora do range [${(minEntry * 100).toFixed(0)}¢–${(maxEntry * 100).toFixed(0)}¢]`, 5000);
         continue;
       }
+      const blockedHours = trading.blockedHoursUtc ?? [];
+      const currentUtcHour = new Date().getUTCHours();
+      if (blockedHours.includes(currentUtcHour)) {
+        setStatusMessage(`Entrada bloqueada — hora UTC ${currentUtcHour}h na lista de horas filtradas`, 5000);
+        continue;
+      }
       const tokenId = side === "UP" ? poly.tokens.upTokenId : poly.tokens.downTokenId;
       const book = side === "UP" ? poly.orderbook.up : poly.orderbook.down;
       const rawAsk = book?.bestAsk ?? (side === "UP" ? marketUp : marketDown);

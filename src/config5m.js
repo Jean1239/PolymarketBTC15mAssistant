@@ -50,7 +50,13 @@ export const CONFIG = {
     // at 0.50–0.54 lose $5.46 historically. Only 0.55–0.60 zone shows positive PnL.
     // Uses its own env vars so it can differ from the 15m config.
     entryMinMarketPrice: Number(process.env.TRADE_ENTRY_MIN_PRICE_5M || "0.50"),
-    entryMaxMarketPrice: Number(process.env.TRADE_ENTRY_MAX_PRICE_5M || "0.60"),
+    // Lowered from 0.60: dry-run shows entries >= 0.52 are net-losers (-$11.44 vs +$9.86 below).
+    entryMaxMarketPrice: Number(process.env.TRADE_ENTRY_MAX_PRICE_5M || "0.52"),
+    // Hours (UTC) during which new entries are blocked. Overrides 15m list.
+    // 06h, 10h, 16h, 21h–23h are consistent destroyers on 5m dry-run.
+    blockedHoursUtc: process.env.TRADE_BLOCKED_HOURS_UTC_5M
+      ? process.env.TRADE_BLOCKED_HOURS_UTC_5M.split(",").map(Number)
+      : [6, 10, 16, 21, 22, 23],
     // Tighter TIME_DECAY on 5m: require ≥15% loss before cutting (vs 5% on 15m),
     // and fire earlier (2.5 min left vs 1.5 min). Cuts clearly-lost positions
     // sooner but avoids trimming the small recoveries seen near settlement.

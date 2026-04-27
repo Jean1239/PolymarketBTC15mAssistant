@@ -165,7 +165,7 @@ async function main() {
       const marketUp   = poly.ok ? poly.prices.up   : null;
       const marketDown = poly.ok ? poly.prices.down  : null;
       const edge = computeEdge({ modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, marketYes: marketUp, marketNo: marketDown });
-      const rec  = decide({ remainingMinutes: timeLeftMin, edgeUp: edge.edgeUp, edgeDown: edge.edgeDown, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, conflicted: scored.conflicted });
+      const rec  = decide({ remainingMinutes: timeLeftMin, edgeUp: edge.edgeUp, edgeDown: edge.edgeDown, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, conflicted: scored.conflicted, regime: regimeInfo.regime, blockedRegimes: CONFIG.trading.blockedRegimes });
 
       // ── Trading ───────────────────────────────────────────────────────────
       const marketSlugNow   = poly.ok ? String(poly.market?.slug ?? "") : "";

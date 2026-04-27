@@ -45,8 +45,8 @@ Pure functions operating on arrays of OHLCV candles (Binance 1m klines):
 - **regime.js** — Classifies market as `TREND_UP`, `TREND_DOWN`, `RANGE`, or `CHOP` based on price vs VWAP, VWAP slope, VWAP cross count, and volume. *(15m only)*
 - **probability.js** — `scoreDirection`: additive scoring model (up/down integer scores) from VWAP, RSI, MACD, Heiken Ashi, failed VWAP reclaim; normalizes to 0–1. `applyTimeAwareness`: decays signal toward 50% as remaining time shrinks. *(15m)*
 - **probability5m.js** — `scoreDirection5m`: primary signals are order flow + momentum + EMA cross; secondary: RSI(5), HA (relaxed), short VWAP. `applyTimeAwareness5m`: quadratic decay (exponent 0.6). *(5m)*
-- **edge.js** — Compares model probability vs Polymarket market price to compute edge. `decide` uses phase-dependent thresholds (EARLY/MID/LATE) to emit `ENTER` or `NO_TRADE`. *(15m)*
-- **edge5m.js** — Re-exports `computeEdge`; `decide5m` uses 5m-tuned phases (EARLY >3m / MID >1.5m / LATE) and lower thresholds. *(5m)*
+- **edge.js** — Compares model probability vs Polymarket market price to compute edge. `decide` uses phase-dependent thresholds (EARLY/MID/LATE) to emit `ENTER` or `NO_TRADE`. Accepts `regime` and `blockedRegimes` params: returns `NO_TRADE` (reason `regime_chop` / `regime_range`) before any other check when the current regime is in the blocked list. Default blocked regimes: `CHOP`, `RANGE`. *(15m)*
+- **edge5m.js** — Re-exports `computeEdge`; `decide5m` uses 5m-tuned phases (EARLY >3m / MID >1.5m / LATE) and lower thresholds. OFI alignment filter: rejects entry when `ofi_1m` contradicts the chosen direction (`ofi_1m < -0.05` for UP, `ofi_1m > 0.05` for DOWN), returning `NO_TRADE` with reason `ofi_conflict`. Previously required both HA and OFI to disagree; OFI alone is now sufficient since it is the primary 5m signal. *(5m)*
 
 ### Main loops
 
@@ -69,12 +69,27 @@ All modules are reusable by future bots targeting other markets or strategies.
 - **orders.js** — `buyMarketOrder()` and `sellMarketOrder()` wrappers around `client.createAndPostMarketOrder()` using `OrderType.FAK` (Fill and Kill — partial fills accepted). Buy price = `bestAsk + 0.02`; sell price = `bestBid - 0.02`, both clamped to valid range. Returns `{ ok, order }` or `{ ok: false, error }`.
 - **position.js** — In-memory position state: `recordBuy()`, `recordSell()`, `getPosition()`, `computeROI()`, `resetIfMarketChanged()`. `fetchPositionBalance()` syncs shares from chain via `getBalanceAllowance()` (used before selling to get actual on-chain balance). `fetchUsdcBalance(address)` reads USDC.e balance directly from Polygon blockchain (not the CLOB API, which only tracks deposited collateral). `evaluateExit()` recommends exits: TP triggers when model confirms reversal (`oppositeProb >= signalFlipMinProb`); SL requires a stricter `stopLossMinProb` threshold AND the position to have aged at least `stopLossMinDurationS` seconds (both configurable, 5m uses tighter values); TIME_DECAY only applies when entry price ≥ 0.50 (cheap entries are held to resolution).
 - **keyboard.js** — `setupKeyboard({ tradingEnabled })` sets up stdin raw mode and returns `{ actionQueue, getConfirmHint(ctx), stdinError }`. The action queue is drained each tick by the executor. `getConfirmHint` builds the [Y]/[N] confirmation line shown on the display.
-- **executor.js** — `processActionQueue(queue, ctx)` drains the keyboard action queue and executes buy/sell orders: selects side, picks bestAsk/bestBid with slippage, calls `buyMarketOrder`/`sellMarketOrder`, fetches on-chain balance, calls `recordBuy`/`recordSell`, logs errors to `./logs/trade_errors.log`. Calls optional `onSold` callback after a successful sell.
+- **executor.js** — `processActionQueue(queue, ctx)` drains the keyboard action queue and executes buy/sell orders: selects side, picks bestAsk/bestBid with slippage, calls `buyMarketOrder`/`sellMarketOrder`, fetches on-chain balance, calls `recordBuy`/`recordSell`, logs errors to `./logs/trade_errors.log`. Calls optional `onSold` callback after a successful sell. Entry is additionally gated by `trading.entryMinMarketPrice`/`entryMaxMarketPrice` (price range filter) and `trading.blockedHoursUtc` (UTC hour filter) — both checked before placing any order.
 - **priceLatch.js** — `createPriceLatch()` returns `{ update(ctx) }`. Manages the state machine that latches the Chainlink BTC/USD reference price at market open (used as the "price to beat" on the display). Reads from the market object first, then fetches historical Chainlink if the app started late (>30s after open), otherwise latches the live price.
 - **redeem.js** — `redeemSettledPositions({ wallet, conditionId, marketSlug })`. Called automatically on every market slug change when `tradingEnabled` is true. Calls `ConditionalTokens.redeemPositions(USDC_E, ZERO_BYTES32, conditionId, [1, 2])` on Polygon to convert any winning tokens back to USDC. Redeeming both index sets is safe: the CTF contract pays out only for positions actually held; losing tokens return $0. Logs to `./logs/trade_orders.log`. Fire-and-forget — does not block the poll loop.
 - **tracker.js** — `createTradeTracker()` returns `{ update(ctx), getStats(), getRecentOutcomes() }`. Tracks the first signal seen per market; when the market slug changes (settlement), computes win/loss and P&L based on the final Chainlink price vs the latched reference. Returns a `settled` object from `update()` so the caller writes it to the CSV in its own format.
 
 Both main loops listen for keypresses when trading is enabled: **[B]** buy the recommended side, **[S]** sell 100% of position, **[Q]** quit. Actions are queued and processed inside the main loop where market data is available.
+
+### Dashboard server (`src/logServer.js`)
+
+Node.js HTTP server (no Express) serving the React dashboard and a JSON API over the log files. Started separately from the bots. API endpoints:
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/stats` | Aggregated `BotStats` for 15m and 5m |
+| `GET` | `/api/trades/15m` | All rows from `dryrun_15m_trades.csv` |
+| `GET` | `/api/trades/5m` | All rows from `dryrun_5m_trades.csv` |
+| `GET` | `/api/live` | Last row of `dryrun_15m.csv` and `dryrun_5m.csv` |
+| `GET` | `/api/files` | List of files in `logs/` with name, size, modified |
+| `GET` | `/api/files/download?name=<file>` | Download a single log file |
+| `GET` | `/api/files/zip` | Download all log files (≤50 MB each) as a ZIP |
+| `POST` | `/api/logs/clear` | Archive current CSVs to `logs/archive/<timestamp>/`, then truncate each to its header row. Returns `{ ok, cleared[], archive }`. Affects: `dryrun_15m.csv`, `dryrun_5m.csv`, `dryrun_15m_trades.csv`, `dryrun_5m_trades.csv`, `signals.csv`, `signals_5m.csv`. |
 
 ### Proxy (`src/net/proxy.js`)
 
@@ -104,6 +119,13 @@ Called once at startup via `applyGlobalProxyFromEnv()`. Reads `HTTPS_PROXY`/`HTT
 | `TRADE_SL_MIN_DURATION_S` | `120` | Minimum seconds a position must be held before stop-loss can fire |
 | `TRADE_FLIP_COOLDOWN_S` | `60` (15m) / `90` (5m) | Seconds to wait after a SIGNAL_FLIP before re-entering the same market |
 | `TRADE_FLIP_CONFIRM_TICKS` | `2` (15m) / `5` (5m) | Consecutive confirming ticks required before SIGNAL_FLIP exit fires |
+| `TRADE_ENTRY_MIN_PRICE` | `0.45` | 15m: minimum market price of chosen side to allow entry |
+| `TRADE_ENTRY_MAX_PRICE` | `0.58` | 15m: maximum market price of chosen side to allow entry |
+| `TRADE_ENTRY_MIN_PRICE_5M` | `0.50` | 5m: minimum market price of chosen side to allow entry |
+| `TRADE_ENTRY_MAX_PRICE_5M` | `0.52` | 5m: maximum market price of chosen side to allow entry (lowered from 0.60 — entries ≥ 0.52 were net-losers in dry-run analysis) |
+| `TRADE_BLOCKED_HOURS_UTC` | `0,1,2,5,6,15,16` | 15m: comma-separated UTC hours during which new entries are suppressed (dry-run analysis showed consistent negative PnL in these windows) |
+| `TRADE_BLOCKED_HOURS_UTC_5M` | `6,10,16,21,22,23` | 5m: comma-separated UTC hours during which new entries are suppressed |
+| `TRADE_BLOCKED_REGIMES` | `CHOP,RANGE` | 15m: comma-separated regime names that block entry; passed to `decide()` in edge.js; valid values: `TREND_UP`, `TREND_DOWN`, `RANGE`, `CHOP` |
 
 ## Output
 
@@ -115,6 +137,7 @@ Called once at startup via `applyGlobalProxyFromEnv()`. Reads `HTTPS_PROXY`/`HTT
 - `./logs/dryrun_15m_trades.csv` — per-trade journal (one row per completed trade) for 15m.
 - `./logs/dryrun_5m_trades.csv` — per-trade journal (one row per completed trade) for 5m.
 - `./logs/polymarket_market_<slug>.json` — raw Polymarket market JSON dumped once per new market slug.
+- `./logs/archive/<timestamp>/` — backup copies of CSV files created by `POST /api/logs/clear` before truncation.
 
 ### Paper-trading simulator (`src/dryRun.js`)
 
@@ -127,7 +150,7 @@ createDryRunSimulator5m("./logs/dryrun_5m.csv", CONFIG.trading)    // used by in
 
 **How it works:** the simulator maintains a virtual position and mirrors real trading logic:
 
-1. **BUY** — when the bot emits an `ENTER` signal and no virtual position is open, it simulates a buy at the current market price (using `CONFIG.trading.tradeAmount` as the virtual investment).
+1. **BUY** — when the bot emits an `ENTER` signal and no virtual position is open, it simulates a buy at the current market price (using `CONFIG.trading.tradeAmount` as the virtual investment). The buy is suppressed if the market price falls outside `[entryMinMarketPrice, entryMaxMarketPrice]` or if the current UTC hour is in `blockedHoursUtc` — matching the same gates applied in live trading (`executor.js`).
 2. **HOLD** — while a position is open, each tick evaluates exit conditions using the same `evaluateExit` logic as real trading (take profit, stop loss, signal flip, time decay).
 3. **SELL** — when an exit condition triggers, the position is closed at the current market price. ROI and PNL are recorded.
 4. **SETTLEMENT** — when the market slug changes (settlement), any open position resolves at $1 (if the held side won) or $0 (if it lost).

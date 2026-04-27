@@ -18,15 +18,14 @@ export function decide5m({ remainingMinutes, edgeUp, edgeDown, modelUp = null, m
   const bestEdge = bestSide === "UP" ? edgeUp : edgeDown;
   const bestModel = bestSide === "UP" ? modelUp : modelDown;
 
-  // Alignment filter: if BOTH HA and OFI disagree with direction, reject.
-  // This catches the low-conviction flip-flop signals that lose money.
-  if (heikenColor !== null && ofi1m !== null) {
-    const haAgainst = (bestSide === "UP" && heikenColor === "red") ||
-                      (bestSide === "DOWN" && heikenColor === "green");
+  // OFI alignment filter: reject if order flow contradicts the chosen direction.
+  // OFI is the primary signal on 5m — entering against it means noise, not edge.
+  // Previously required BOTH HA and OFI to disagree; OFI alone is now sufficient.
+  if (ofi1m !== null) {
     const ofiAgainst = (bestSide === "UP" && ofi1m < -0.05) ||
                        (bestSide === "DOWN" && ofi1m > 0.05);
-    if (haAgainst && ofiAgainst) {
-      return { action: "NO_TRADE", side: null, phase, reason: "alignment_conflict" };
+    if (ofiAgainst) {
+      return { action: "NO_TRADE", side: null, phase, reason: "ofi_conflict" };
     }
   }
 

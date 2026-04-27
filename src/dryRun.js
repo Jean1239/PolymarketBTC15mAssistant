@@ -390,7 +390,12 @@ function createSimulator(csvPath, header, config, label = "bot") {
       const maxEntry = config.entryMaxMarketPrice ?? 1;
       const priceAllowed = entryMktPrice != null && entryMktPrice >= minEntry && entryMktPrice <= maxEntry;
 
-      if (priceAllowed && entryMktPrice > 0) {
+      // Time filter: block entries during configured UTC hours
+      const blockedHours = config.blockedHoursUtc ?? [];
+      const currentUtcHour = new Date().getUTCHours();
+      const hourAllowed = !blockedHours.includes(currentUtcHour);
+
+      if (priceAllowed && hourAllowed && entryMktPrice > 0) {
         const invested = computeTradeAmount({
           baseAmount: config.tradeAmount,
           side: rec.side,

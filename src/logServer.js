@@ -1,5 +1,5 @@
 import http from "http";
-import { createReadStream, readFileSync, readdirSync, existsSync, statSync } from "fs";
+import { createReadStream, readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync, existsSync, statSync } from "fs";
 import { readdir } from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -298,7 +298,7 @@ const server = http.createServer((req, res) => {
   const p = url.pathname;
 
   if (req.method === "OPTIONS") {
-    res.writeHead(204, { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET" });
+    res.writeHead(204, { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST" });
     res.end(); return;
   }
 
@@ -370,6 +370,31 @@ const server = http.createServer((req, res) => {
       });
       res.end(zip);
       return;
+    }
+
+    if (p === "/api/logs/clear" && req.method === "POST") {
+      const CSV_FILES = [
+        "dryrun_15m.csv",
+        "dryrun_5m.csv",
+        "dryrun_15m_trades.csv",
+        "dryrun_5m_trades.csv",
+        "signals.csv",
+        "signals_5m.csv",
+      ];
+      const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const archiveDir = path.join(LOGS_DIR, "archive", ts);
+      mkdirSync(archiveDir, { recursive: true });
+      const cleared = [];
+      for (const name of CSV_FILES) {
+        const fp = path.join(LOGS_DIR, name);
+        if (!existsSync(fp)) continue;
+        copyFileSync(fp, path.join(archiveDir, name));
+        const content = readFileSync(fp, "utf8");
+        const header = content.split("\n")[0];
+        writeFileSync(fp, header + "\n", "utf8");
+        cleared.push(name);
+      }
+      return json(res, { ok: true, cleared, archive: `archive/${ts}` });
     }
 
     if (p.startsWith("/api/")) {

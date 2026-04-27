@@ -4,6 +4,7 @@ import { Download, FolderArchive, FileSpreadsheet, FileJson, FileText, AlertCirc
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { ClearLogsButton } from "@/components/clear-logs-button"
 import { api, type LogFile } from "@/lib/api"
 
 export const Route = createFileRoute("/files")({
@@ -83,15 +84,18 @@ function FilesPage() {
             </span>
           )}
         </div>
-        <a href="/api/files/zip" download={`polymarket-logs-${new Date().toISOString().slice(0, 10)}.zip`}>
-          <Button variant="default" size="sm" disabled={included.length === 0}>
-            <Download className="h-4 w-4 mr-2" />
-            Baixar tudo (ZIP)
-            {included.length > 0 && (
-              <span className="ml-1.5 text-xs opacity-70">· {included.length} arquivo{included.length !== 1 ? "s" : ""}</span>
-            )}
-          </Button>
-        </a>
+        <div className="flex items-center gap-2">
+          <ClearLogsButton />
+          <a href="/api/files/zip" download={`polymarket-logs-${new Date().toISOString().slice(0, 10)}.zip`}>
+            <Button variant="default" size="sm" disabled={included.length === 0}>
+              <Download className="h-4 w-4 mr-2" />
+              Baixar tudo (ZIP)
+              {included.length > 0 && (
+                <span className="ml-1.5 text-xs opacity-70">· {included.length} arquivo{included.length !== 1 ? "s" : ""}</span>
+              )}
+            </Button>
+          </a>
+        </div>
       </div>
 
       {excluded.length > 0 && (

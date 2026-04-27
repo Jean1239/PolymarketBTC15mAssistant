@@ -66,6 +66,18 @@ export const CONFIG = {
     highConvictionMinProb: Number(process.env.TRADE_HIGH_CONVICTION_MIN_PROB || "0.70"),
     highConvictionEntryMin: Number(process.env.TRADE_HIGH_CONVICTION_ENTRY_MIN || "0.45"),
     highConvictionEntryMax: Number(process.env.TRADE_HIGH_CONVICTION_ENTRY_MAX || "0.50"),
+    // Regimes in which new entries are blocked (15m only).
+    // CHOP and RANGE have low directional signal — more STOP_LOSS and TIME_DECAY events.
+    // Override with TRADE_BLOCKED_REGIMES as a comma-separated list (e.g. "CHOP,RANGE").
+    blockedRegimes: process.env.TRADE_BLOCKED_REGIMES
+      ? process.env.TRADE_BLOCKED_REGIMES.split(",").map(s => s.trim().toUpperCase())
+      : ["CHOP", "RANGE"],
+    // Hours (UTC) during which new entries are blocked. Derived from dry-run analysis:
+    // 00–02h, 05–06h, 15–16h show consistent negative PnL on 15m.
+    // Override with TRADE_BLOCKED_HOURS_UTC as a comma-separated list (e.g. "0,1,2").
+    blockedHoursUtc: process.env.TRADE_BLOCKED_HOURS_UTC
+      ? process.env.TRADE_BLOCKED_HOURS_UTC.split(",").map(Number)
+      : [0, 1, 2, 5, 6, 15, 16],
     // When true: paper-trading only — no real orders even if private key is set
     dryRunOnly: (process.env.DRY_RUN || "").toLowerCase() === "true",
     // When true: enables real order execution. Default false = simulated/paper mode.
