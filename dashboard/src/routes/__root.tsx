@@ -5,6 +5,7 @@ import { Activity, BarChart3, FolderArchive, Menu, Table2, Wifi } from "lucide-r
 import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
+import { Toaster } from "@/components/ui/sonner"
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -58,7 +59,7 @@ function RootLayout() {
 
       {/* Mobile nav drawer */}
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent side="left" className="w-64 p-0">
+        <SheetContent side="left" className="dark w-64 p-0">
           <SheetHeader className="px-4 py-4 border-b border-border">
             <SheetTitle className="flex items-center gap-2 text-sm">
               <Activity className="h-5 w-5 text-primary" />
@@ -86,6 +87,7 @@ function RootLayout() {
       </main>
 
       {import.meta.env.DEV && <TanStackRouterDevtools />}
+      <Toaster position="bottom-right" />
     </div>
   )
 }

@@ -49,7 +49,7 @@ services:
     ports:
       - "3456:3456"
     volumes:
-      - polymarket_logs:/app/logs:ro
+      - polymarket_logs:/app/logs
     mem_limit: 128m
     depends_on:
       - bot-15m

@@ -18,5 +18,8 @@
     "socks-proxy-agent": "^8.0.5",
     "undici": "^6.21.3",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "shadcn": "^4.5.0"
   }
 }

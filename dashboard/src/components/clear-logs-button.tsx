@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Trash2 } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -18,15 +19,20 @@ import { api } from "@/lib/api"
 export function ClearLogsButton() {
   const queryClient = useQueryClient()
   const [clearing, setClearing] = useState(false)
-  const [result, setResult] = useState<{ cleared: string[]; archive: string } | null>(null)
 
   async function handleConfirm() {
     setClearing(true)
-    setResult(null)
     try {
       const res = await api.clearLogs()
-      setResult({ cleared: res.cleared, archive: res.archive })
       await queryClient.invalidateQueries()
+      toast.success(
+        `${res.cleared.length} arquivo${res.cleared.length !== 1 ? "s" : ""} limpos com sucesso`,
+        { description: `Backup salvo em ${res.archive}` }
+      )
+    } catch {
+      toast.error("Erro ao limpar logs", {
+        description: "Verifique se o servidor está rodando e tente novamente.",
+      })
     } finally {
       setClearing(false)
     }
@@ -43,21 +49,11 @@ export function ClearLogsButton() {
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Limpar todos os logs?</AlertDialogTitle>
-          <AlertDialogDescription asChild>
-            <div className="space-y-2">
-              <p>
-                Os arquivos CSV de trades e sinais serão zerados (somente o cabeçalho é mantido).
-                Uma cópia de segurança será salva automaticamente em{" "}
-                <code className="text-xs bg-muted px-1 py-0.5 rounded">logs/archive/</code>{" "}
-                antes de limpar.
-              </p>
-              {result && (
-                <p className="text-green-400 text-xs">
-                  ✓ {result.cleared.length} arquivo{result.cleared.length !== 1 ? "s" : ""} limpos.
-                  Backup em <code className="font-mono">{result.archive}</code>.
-                </p>
-              )}
-            </div>
+          <AlertDialogDescription>
+            Os arquivos CSV de trades e sinais serão zerados (somente o cabeçalho é mantido).
+            Uma cópia de segurança será salva automaticamente em{" "}
+            <code className="text-xs bg-muted px-1 py-0.5 rounded">logs/archive/</code>{" "}
+            antes de limpar.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
