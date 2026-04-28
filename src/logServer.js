@@ -1,5 +1,5 @@
 import http from "http";
-import { createReadStream, readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync, existsSync, statSync } from "fs";
+import { createReadStream, readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync, existsSync, statSync, openSync, fstatSync, readSync, closeSync } from "fs";
 import { readdir } from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -89,6 +89,39 @@ function parseCsv(filepath) {
     const vals = line.split(",");
     return Object.fromEntries(headers.map((h, i) => [h, vals[i] ?? ""]));
   });
+}
+
+// Reads only the header line + last data line — O(1) memory regardless of file size.
+function readLastCsvRow(filepath) {
+  if (!existsSync(filepath)) return null;
+  let fd;
+  try {
+    fd = openSync(filepath, "r");
+    const { size } = fstatSync(fd);
+    if (size === 0) return null;
+
+    const hBuf = Buffer.alloc(Math.min(2048, size));
+    readSync(fd, hBuf, 0, hBuf.length, 0);
+    const hEnd = hBuf.indexOf(10); // '\n'
+    if (hEnd < 0) return null;
+    const headerLine = hBuf.subarray(0, hEnd).toString("utf8").replace(/\r$/, "");
+
+    const CHUNK = Math.min(16384, size);
+    const tBuf = Buffer.alloc(CHUNK);
+    readSync(fd, tBuf, 0, CHUNK, size - CHUNK);
+    const lines = tBuf.toString("utf8").split("\n");
+
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (!line || line.startsWith("timestamp,")) continue;
+      const headers = headerLine.split(",");
+      const vals = line.split(",");
+      return Object.fromEntries(headers.map((h, j) => [h, vals[j] ?? ""]));
+    }
+    return null;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
 }
 
 function parseNum(v) {
@@ -320,11 +353,11 @@ const server = http.createServer((req, res) => {
     }
 
     if (p === "/api/live") {
-      const rows15 = coerceSignals15m(parseCsv(path.join(LOGS_DIR, "dryrun_15m.csv")));
-      const rows5 = coerceSignals5m(parseCsv(path.join(LOGS_DIR, "dryrun_5m.csv")));
+      const row15 = readLastCsvRow(path.join(LOGS_DIR, "dryrun_15m.csv"));
+      const row5  = readLastCsvRow(path.join(LOGS_DIR, "dryrun_5m.csv"));
       return json(res, {
-        "15m": rows15.length ? rows15[rows15.length - 1] : null,
-        "5m": rows5.length ? rows5[rows5.length - 1] : null,
+        "15m": row15 ? coerceSignals15m([row15])[0] : null,
+        "5m":  row5  ? coerceSignals5m([row5])[0]   : null,
       });
     }
 

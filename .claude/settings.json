@@ -11,5 +11,18 @@
       "Bash(fish -c 'nvm use lts && node -e \":*)",
       "Bash(fish -c 'nvm use lts && node --input-type=module -e \":*)"
     ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "STRATEGY_FILES='src/config.js src/config5m.js src/engines/edge.js src/engines/edge5m.js src/engines/probability.js src/engines/probability5m.js src/engines/regime.js src/dryRun.js src/trading/executor.js src/trading/position.js'; CHANGED=$(git -C \"$(jq -r '.session_id' 2>/dev/null | head -c0; git rev-parse --show-toplevel 2>/dev/null || pwd)\" diff --name-only HEAD 2>/dev/null); ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd); CHANGED=$(git -C \"$ROOT\" diff --name-only HEAD 2>/dev/null; git -C \"$ROOT\" diff --name-only 2>/dev/null); MATCH=$(echo \"$CHANGED\" | grep -E '^src/(config|engines/edge|engines/probability|engines/regime|dryRun|trading/executor|trading/position)' | head -1); if [ -n \"$MATCH\" ]; then echo '{\"systemMessage\": \"Strategy files were modified this session. Run the document-strategy-change skill to update STRATEGY_LOG.md and CLAUDE.md before finishing.\"}'; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
   }
 }

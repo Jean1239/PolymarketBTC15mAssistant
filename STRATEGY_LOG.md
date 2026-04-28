@@ -28,13 +28,122 @@ O comando lê `logs/dryrun_15m_trades.csv` e `logs/dryrun_5m_trades.csv` e impri
 
 ---
 
-## Versão atual
+## Versão atual — v10
 
-**Ref:** `logs/` (live)  
-**Data:** 2026-04-17
+**Ref:** `logs/archive/2026-04-26` (cloud run — baseline desta versão)  
+**Hash:** `b03ec16` (HEAD)  
+**Data:** 2026-04-27  
+**Ambiente:** cloud — nenhuma env var definida, todos os parâmetros são os **defaults do código**
 
-### Mudanças vs anterior
-Introduzidas após análise dos 51 trades 15m / 69 trades 5m registrados em 2026-04-17 (baseline arquivado em `logs/archive/2026-04-17_pre-entry-filter-and-15m-flip-disable/`):
+### Mudanças vs v9
+Introduzidas após análise dos 110 trades 15m / 394 trades 5m da primeira rodada cloud (2026-04-26):
+
+1. **Filtro de horário UTC — 15m** (`blockedHoursUtc`). Horas 00–02h, 05–06h, 15–16h UTC suprimem novas entradas. Análise mostrou PnL sistematicamente negativo nesses janelas: os 28 trades excluídos geraram −$21.64, enquanto os 82 restantes teriam gerado +$26.33 (vs +$4.68 total). Configurável via `TRADE_BLOCKED_HOURS_UTC`.
+
+2. **Filtro de horário UTC — 5m** (`blockedHoursUtc` no config5m). Horas 06h, 10h, 16h, 21–23h UTC bloqueadas. Os 130 trades nesses horários geraram −$20.36; os 264 restantes +$18.78 (vs −$1.58 total). Configurável via `TRADE_BLOCKED_HOURS_UTC_5M`.
+
+3. **Rebaixado teto de entrada 5m: 0.60 → 0.52** (`entryMaxMarketPrice`). Segmentação por faixa: entry ≥ 0.52 gerou −$11.44 em 219 trades; entry < 0.52 gerou +$9.86 em 175 trades. Entrar em preços mais altos significa pagar mais pelo mesmo sinal com maior rejeição do mercado. Configurável via `TRADE_ENTRY_MAX_PRICE_5M`.
+
+4. **Filtro de regime no 15m — CHOP e RANGE bloqueados** (`blockedRegimes` em `edge.js`). A segunda metade dos trades (56–110) mostrou TIME_DECAY dobrando (6→12) e STOP_LOSS dobrando (5→11), sugerindo mercado choppier. Entradas em CHOP/RANGE têm menor direcionalidade e maior probabilidade de saída prematura. Retorna `NO_TRADE` com reason `regime_chop`/`regime_range`. Configurável via `TRADE_BLOCKED_REGIMES`.
+
+5. **Filtro OFI exclusivo no 5m** (`edge5m.js`). Antes bloqueava só se HA **e** OFI fossem contrários à direção. Agora OFI sozinho com `|ofi_1m| > 0.05` é suficiente para bloquear. Racional: OFI é o sinal primário do modelo 5m — entrar contra o fluxo de ordens é noise, não edge, independente do que HA diz. Retorna reason `ofi_conflict`.
+
+### Parâmetros — 15m
+| Parâmetro | Valor | Env var |
+|---|---|---|
+| `tradeAmount` | $5 (base) | `POLYMARKET_TRADE_AMOUNT` |
+| `takeProfitPct` | 20% | `TRADE_TAKE_PROFIT_PCT` |
+| `stopLossPct` | 25% | `TRADE_STOP_LOSS_PCT` |
+| `signalFlipMinProb` | 0.58 | `TRADE_SIGNAL_FLIP_PROB` |
+| `stopLossMinProb` | 0.65 | `TRADE_SL_MIN_PROB` |
+| `stopLossMinDurationS` | 120s | `TRADE_SL_MIN_DURATION_S` |
+| `flipCooldownS` | 60s | `TRADE_FLIP_COOLDOWN_S` |
+| `flipConfirmTicks` | 2 | `TRADE_FLIP_CONFIRM_TICKS` |
+| `ptbSafeMarginUsd` | 30 | `TRADE_PTB_SAFE_MARGIN_USD` |
+| `disableStopLoss` | false | `TRADE_DISABLE_STOP_LOSS` |
+| `disableSignalFlip` | true | `TRADE_DISABLE_SIGNAL_FLIP` |
+| `entryMinMarketPrice` | 0.45 | `TRADE_ENTRY_MIN_PRICE` |
+| `entryMaxMarketPrice` | 0.58 | `TRADE_ENTRY_MAX_PRICE` |
+| `blockedHoursUtc` | **[0,1,2,5,6,15,16]** ✱ | `TRADE_BLOCKED_HOURS_UTC` |
+| `blockedRegimes` | **[CHOP,RANGE]** ✱ | `TRADE_BLOCKED_REGIMES` |
+| `timeDecayMinLeftMin` | 1.5 min | `TRADE_TIME_DECAY_MIN_LEFT_MIN` |
+| `timeDecayMinLossPct` | 5% | `TRADE_TIME_DECAY_MIN_LOSS_PCT` |
+| `highConvictionMultiplier` | 2× | `TRADE_HIGH_CONVICTION_MULT` |
+| `highConvictionMinProb` | 0.70 | `TRADE_HIGH_CONVICTION_MIN_PROB` |
+| `highConvictionEntryMin` | 0.45 | `TRADE_HIGH_CONVICTION_ENTRY_MIN` |
+| `highConvictionEntryMax` | 0.50 | `TRADE_HIGH_CONVICTION_ENTRY_MAX` |
+
+### Parâmetros — 5m
+| Parâmetro | Valor | Env var |
+|---|---|---|
+| `tradeAmount` | $5 (base) | `POLYMARKET_TRADE_AMOUNT` |
+| `takeProfitPct` | 20% | `TRADE_TAKE_PROFIT_PCT` |
+| `stopLossPct` | 25% | `TRADE_STOP_LOSS_PCT` |
+| `signalFlipMinProb` | 0.62 | `TRADE_SIGNAL_FLIP_PROB` |
+| `stopLossMinProb` | 0.65 | `TRADE_SL_MIN_PROB` |
+| `stopLossMinDurationS` | 120s | `TRADE_SL_MIN_DURATION_S` |
+| `flipCooldownS` | 90s | `TRADE_FLIP_COOLDOWN_S` |
+| `flipConfirmTicks` | 5 | `TRADE_FLIP_CONFIRM_TICKS` |
+| `ptbSafeMarginUsd` | 30 | `TRADE_PTB_SAFE_MARGIN_USD` |
+| `disableStopLoss` | true | `TRADE_DISABLE_STOP_LOSS_5M` |
+| `disableSignalFlip` | true | `TRADE_DISABLE_SIGNAL_FLIP_5M` |
+| `entryMinMarketPrice` | 0.50 | `TRADE_ENTRY_MIN_PRICE_5M` |
+| `entryMaxMarketPrice` | **0.52** ✱ | `TRADE_ENTRY_MAX_PRICE_5M` |
+| `blockedHoursUtc` | **[6,10,16,21,22,23]** ✱ | `TRADE_BLOCKED_HOURS_UTC_5M` |
+| `timeDecayMinLeftMin` | 2.5 min | `TRADE_TIME_DECAY_MIN_LEFT_MIN_5M` |
+| `timeDecayMinLossPct` | 15% | `TRADE_TIME_DECAY_MIN_LOSS_PCT_5M` |
+| `highConvictionMultiplier` | 1 (off) | `TRADE_HIGH_CONVICTION_MULT_5M` |
+
+✱ = mudanças desta versão. Todos os valores acima são **defaults hardcoded no código** — o ambiente cloud não define nenhuma env var. As colunas "Env var" indicam como sobrescrever localmente se necessário.
+
+### Mudanças de lógica (sem env var)
+| Componente | Antes | Depois | Razão |
+|---|---|---|---|
+| `edge5m.js` — filtro de alinhamento | Bloqueava se HA **e** OFI contrários | Bloqueia se OFI contrário (sozinho) | OFI é sinal primário; HA secundário. Exigir ambos era permissivo demais |
+| `edge.js` — `decide()` | Sem filtro de regime | Aceita `regime` + `blockedRegimes`; bloqueia CHOP/RANGE por default | CHOP/RANGE têm direcionalidade insuficiente para sinal confiável |
+| `dryRun.js` — gate de BUY | Price range + cooldown | + UTC hour filter | Espelha a mesma lógica do executor live |
+| `executor.js` — gate de compra | Price range check | + UTC hour filter com mensagem de status | Consistência com simulator |
+
+### Desempenho do baseline (cloud run 2026-04-26 — pré-mudanças v10)
+| Bot | Trades | Win | Loss | Win Rate | PnL | Profit Factor | Max DD | Pior streak |
+|---|---|---|---|---|---|---|---|---|
+| 15m | 110 | 49 | 61 | 44.5% | +$4.68 | 1.07 | $17.81 | 10 |
+| 5m | 394 | 118 | 276 | 29.9% | −$1.58 | 0.98 | $16.04 | 17 |
+
+### Exit reasons — 15m (baseline cloud)
+| Razão | Count | Win% | PnL total | Avg/trade |
+|---|---|---|---|---|
+| SETTLED_WIN | 46 | 100% | +$73.93 | +$1.61 |
+| SETTLED_LOSS | 27 | 0% | −$49.00 | −$1.81 |
+| TIME_DECAY | 18 | 0% | −$12.96 | −$0.72 |
+| STOP_LOSS | 16 | 0% | −$8.60 | −$0.54 |
+| TAKE_PROFIT | 3 | 100% | +$1.32 | +$0.44 |
+
+### Exit reasons — 5m (baseline cloud)
+| Razão | Count | Win% | PnL total | Avg/trade |
+|---|---|---|---|---|
+| SETTLED_WIN | 110 | 100% | +$98.66 | +$0.90 |
+| TAKE_PROFIT | 8 | 100% | +$2.75 | +$0.34 |
+| TIME_DECAY | 276 | 0% | −$102.99 | −$0.37 |
+
+### Análise de impacto estimado dos filtros v10 (contra baseline cloud)
+| Filtro | Bot | Trades bloqueados | PnL recuperado |
+|---|---|---|---|
+| Horário UTC | 15m | 28 de 110 | ~+$21.64 (trades ruins evitados) |
+| Horário UTC | 5m | 130 de 394 | ~+$20.36 (trades ruins evitados) |
+| Entry max 0.52 | 5m | 219→175 entradas válidas | ~+$11.44 (entries ≥0.52 evitadas) |
+
+Impacto simulado combinado: 15m +$4.68 → ~+$26 / 5m −$1.58 → ~+$19 (antes dos filtros de regime e OFI, sem dados suficientes para quantificar esses).
+
+---
+
+## Snapshot: v9 — `d36b3f4`
+
+**Data:** 2026-04-17 (local) / 2026-04-26 (cloud run que gerou o baseline de v10)  
+**Baseline arquivado em:** `logs/archive/2026-04-17_pre-entry-filter-and-15m-flip-disable/`  
+**Ambiente cloud:** nenhuma env var definida — parâmetros abaixo são os defaults do código naquele commit
+
+### Mudanças vs v8
 1. **Ativado filtro de preço de entrada em ambos os bots** (`entryMinMarketPrice` / `entryMaxMarketPrice`). Estava disponível mas desativado (0–1). Defaults agora baseados em análise por faixa de PnL.
 2. **Desabilitado SIGNAL_FLIP no 15m** (`disableSignalFlip = true`). 25 flips causaram −$9.00 (51% dos trades) — mesmo padrão que justificou desabilitar no 5m.
 3. **Endurecido TIME_DECAY no 5m**: `timeLeftMin < 2.5` + loss `> 15%` (antes: <1.5 + >5%). TIME_DECAY custou −$13.25 em 17 trades, a maioria com recuperação negligenciável no final.
@@ -53,12 +162,12 @@ Introduzidas após análise dos 51 trades 15m / 69 trades 5m registrados em 2026
 | `flipConfirmTicks` | 2 | `TRADE_FLIP_CONFIRM_TICKS` |
 | `ptbSafeMarginUsd` | 30 | `TRADE_PTB_SAFE_MARGIN_USD` |
 | `disableStopLoss` | false | `TRADE_DISABLE_STOP_LOSS` |
-| `disableSignalFlip` | **true** ✱ | `TRADE_DISABLE_SIGNAL_FLIP` |
-| `entryMinMarketPrice` | **0.45** ✱ | `TRADE_ENTRY_MIN_PRICE` |
-| `entryMaxMarketPrice` | **0.58** ✱ | `TRADE_ENTRY_MAX_PRICE` |
+| `disableSignalFlip` | true ✱ | `TRADE_DISABLE_SIGNAL_FLIP` |
+| `entryMinMarketPrice` | 0.45 ✱ | `TRADE_ENTRY_MIN_PRICE` |
+| `entryMaxMarketPrice` | 0.58 ✱ | `TRADE_ENTRY_MAX_PRICE` |
 | `timeDecayMinLeftMin` | 1.5 min | `TRADE_TIME_DECAY_MIN_LEFT_MIN` |
 | `timeDecayMinLossPct` | 5% | `TRADE_TIME_DECAY_MIN_LOSS_PCT` |
-| `highConvictionMultiplier` | **2×** ✱ | `TRADE_HIGH_CONVICTION_MULT` |
+| `highConvictionMultiplier` | 2× ✱ | `TRADE_HIGH_CONVICTION_MULT` |
 | `highConvictionMinProb` | 0.70 | `TRADE_HIGH_CONVICTION_MIN_PROB` |
 | `highConvictionEntryMin` | 0.45 | `TRADE_HIGH_CONVICTION_ENTRY_MIN` |
 | `highConvictionEntryMax` | 0.50 | `TRADE_HIGH_CONVICTION_ENTRY_MAX` |
@@ -75,15 +184,15 @@ Introduzidas após análise dos 51 trades 15m / 69 trades 5m registrados em 2026
 | `flipCooldownS` | 90s | `TRADE_FLIP_COOLDOWN_S` |
 | `flipConfirmTicks` | 5 | `TRADE_FLIP_CONFIRM_TICKS` |
 | `ptbSafeMarginUsd` | 30 | `TRADE_PTB_SAFE_MARGIN_USD` |
-| `disableStopLoss` | **true** | `TRADE_DISABLE_STOP_LOSS_5M` |
-| `disableSignalFlip` | **true** | `TRADE_DISABLE_SIGNAL_FLIP_5M` |
-| `entryMinMarketPrice` | **0.50** ✱ | `TRADE_ENTRY_MIN_PRICE_5M` |
-| `entryMaxMarketPrice` | **0.60** ✱ | `TRADE_ENTRY_MAX_PRICE_5M` |
-| `timeDecayMinLeftMin` | **2.5 min** ✱ | `TRADE_TIME_DECAY_MIN_LEFT_MIN_5M` |
-| `timeDecayMinLossPct` | **15%** ✱ | `TRADE_TIME_DECAY_MIN_LOSS_PCT_5M` |
+| `disableStopLoss` | true | `TRADE_DISABLE_STOP_LOSS_5M` |
+| `disableSignalFlip` | true | `TRADE_DISABLE_SIGNAL_FLIP_5M` |
+| `entryMinMarketPrice` | 0.50 ✱ | `TRADE_ENTRY_MIN_PRICE_5M` |
+| `entryMaxMarketPrice` | 0.60 ✱ | `TRADE_ENTRY_MAX_PRICE_5M` |
+| `timeDecayMinLeftMin` | 2.5 min ✱ | `TRADE_TIME_DECAY_MIN_LEFT_MIN_5M` |
+| `timeDecayMinLossPct` | 15% ✱ | `TRADE_TIME_DECAY_MIN_LOSS_PCT_5M` |
 | `highConvictionMultiplier` | 1 (off) | `TRADE_HIGH_CONVICTION_MULT_5M` |
 
-✱ = mudanças desta versão. Valores são defaults no código; `.env` sobrescreve se definido.
+✱ = mudanças desta versão. Valores são defaults hardcoded no código naquele commit — sem env var overrides.
 
 ### Desempenho (paper-trading acumulado — pré-mudança, via `npm run report`)
 | Bot | Trades | Win | Loss | Win Rate | PnL | Profit Fac | Avg Win | Avg Loss |
@@ -296,39 +405,41 @@ O remoto rodou sem entry filter (0–1), entrando em todos os preços, inclusive
 
 ## Tabela consolidada — hash × parâmetros × resultados
 
-Cada linha = uma versão de código (commit-pai do commit que introduziu a próxima mudança). Os parâmetros refletem os **defaults do código naquele commit** + overrides explícitos no `.env` daquele run. Use para estudar qual combinação de (código + params) produziu cada resultado.
+Cada linha = uma versão de código (commit-pai do commit que introduziu a próxima mudança). Os parâmetros refletem os **defaults do código naquele commit**. O ambiente cloud nunca definiu env vars — todos os runs na nuvem usaram exatamente os defaults do código. Runs locais com `.env` são indicados explicitamente (ex: "8b local").
 
 **Legenda:** `flip@X` = `signalFlipMinProb=X`; `CT=N` = `flipConfirmTicks=N`; `CD=Ns` = `flipCooldownS=N`; ⚠ = amostra insuficiente (< 20 trades).
 
 ### Parâmetros 15m por versão
 
-| # | Hash | Data | flip | disableFlip | disableSL | SL guards | entry filter | highConvMult | TD |
-|---|---|---|---|---|---|---|---|---|---|
-| 1 | `a8e2101` | 07-abr | 0.58 | false | false | 0.58 / 0s | — | — | 1.5m / 5% |
-| 2 | `45170e2` | 13-abr | 0.58 | false | false | 0.65 / 120s | — | — | 1.5m / 5% |
-| 3 | `fe27514` | 14-abr | 0.58 | false | false | 0.65 / 120s | — | — | 1.5m / 5% |
-| 4 | `2c0cbc7` | 15-abr | 0.58 | false | false | 0.65 / 120s | — | — | 1.5m / 5% |
-| 5 | `fa9fc9b` | 15-abr | 0.58 | false | false | 0.65 / 120s | — | — | 1.5m / 5% |
-| 6 | `577d5f4` | 15-abr | 0.58 | false | false | 0.65 / 120s | — | — | 1.5m / 5% |
-| 7 | `83a4a7b` | 15-abr | 0.58 | false | false | 0.65 / 120s | — (+PTB $30) | — | 1.5m / 5% |
-| 8a | `f821b16` (remoto) | 16-abr | 0.58 | false | false | 0.65 / 120s | 0–1 (off) | — | 1.5m / 5% |
-| 8b | `f821b16` + `.env` local | 17-abr | 0.58 | false | false | 0.65 / 120s | **0.40–0.85** | — | 1.5m / 5% |
-| **9** | `d36b3f4` (HEAD) | 24-abr | 0.58 | **true** | false | 0.65 / 120s | **0.45–0.58** | **2×** @ 0.45–0.50 / prob≥0.70 | 1.5m / 5% |
+| # | Hash | Data | flip | disableFlip | disableSL | SL guards | entry filter | highConvMult | TD | blockedHours | blockedRegimes |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | `a8e2101` | 07-abr | 0.58 | false | false | 0.58 / 0s | — | — | 1.5m / 5% | — | — |
+| 2 | `45170e2` | 13-abr | 0.58 | false | false | 0.65 / 120s | — | — | 1.5m / 5% | — | — |
+| 3 | `fe27514` | 14-abr | 0.58 | false | false | 0.65 / 120s | — | — | 1.5m / 5% | — | — |
+| 4 | `2c0cbc7` | 15-abr | 0.58 | false | false | 0.65 / 120s | — | — | 1.5m / 5% | — | — |
+| 5 | `fa9fc9b` | 15-abr | 0.58 | false | false | 0.65 / 120s | — | — | 1.5m / 5% | — | — |
+| 6 | `577d5f4` | 15-abr | 0.58 | false | false | 0.65 / 120s | — | — | 1.5m / 5% | — | — |
+| 7 | `83a4a7b` | 15-abr | 0.58 | false | false | 0.65 / 120s | — (+PTB $30) | — | 1.5m / 5% | — | — |
+| 8a | `f821b16` (remoto) | 16-abr | 0.58 | false | false | 0.65 / 120s | 0–1 (off) | — | 1.5m / 5% | — | — |
+| 8b | `f821b16` + `.env` local | 17-abr | 0.58 | false | false | 0.65 / 120s | **0.40–0.85** | — | 1.5m / 5% | — | — |
+| 9 | `d36b3f4` | 24-abr | 0.58 | **true** | false | 0.65 / 120s | **0.45–0.58** | **2×** @ 0.45–0.50 / prob≥0.70 | 1.5m / 5% | — | — |
+| **10** | `b03ec16` | 27-abr | 0.58 | true | false | 0.65 / 120s | 0.45–0.58 | 2× | 1.5m / 5% | **[0,1,2,5,6,15,16]** | **[CHOP,RANGE]** |
 
 ### Parâmetros 5m por versão
 
-| # | Hash | Data | flip | CT | CD | disableFlip | disableSL | entry filter | TD |
-|---|---|---|---|---|---|---|---|---|---|
-| 1 | `a8e2101` | 07-abr | 0.58 | 1 | 0s | false | false | — | 1.5m / 5% |
-| 2 | `45170e2` | 13-abr | 0.58 | 3 | 90s | false | false | — | 1.5m / 5% |
-| 3 | `fe27514` | 14-abr | **0.62** | **5** | 90s | false | false | — | 1.5m / 5% |
-| 4 | `2c0cbc7` | 15-abr | 0.62 | 5 | 90s | false | false | — | 1.5m / 5% |
-| 5 | `fa9fc9b` | 15-abr | 0.62 | 5 | 90s | **true** | false | — | 1.5m / 5% |
-| 6 | `577d5f4` | 15-abr | 0.62 | 5 | 90s | true | false | — | 1.5m / 5% |
-| 7 | `83a4a7b` | 15-abr | 0.62 | 5 | 90s | true | false | — (+PTB $30) | 1.5m / 5% |
-| 8a | `f821b16` (remoto) | 16-abr | 0.62 | 5 | 90s | true | **true** | 0–1 (off) | 1.5m / 5% |
-| 8b | `f821b16` + `.env` local | 17-abr | 0.62 | 5 | 90s | true | true | **0.40–0.85** | 1.5m / 5% |
-| **9** | `d36b3f4` (HEAD) | 24-abr | 0.62 | 5 | 90s | true | true | **0.50–0.60** | **2.5m / 15%** |
+| # | Hash | Data | flip | CT | CD | disableFlip | disableSL | entry filter | TD | blockedHours | ofiFilter |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | `a8e2101` | 07-abr | 0.58 | 1 | 0s | false | false | — | 1.5m / 5% | — | HA+OFI |
+| 2 | `45170e2` | 13-abr | 0.58 | 3 | 90s | false | false | — | 1.5m / 5% | — | HA+OFI |
+| 3 | `fe27514` | 14-abr | **0.62** | **5** | 90s | false | false | — | 1.5m / 5% | — | HA+OFI |
+| 4 | `2c0cbc7` | 15-abr | 0.62 | 5 | 90s | false | false | — | 1.5m / 5% | — | HA+OFI |
+| 5 | `fa9fc9b` | 15-abr | 0.62 | 5 | 90s | **true** | false | — | 1.5m / 5% | — | HA+OFI |
+| 6 | `577d5f4` | 15-abr | 0.62 | 5 | 90s | true | false | — | 1.5m / 5% | — | HA+OFI |
+| 7 | `83a4a7b` | 15-abr | 0.62 | 5 | 90s | true | false | — (+PTB $30) | 1.5m / 5% | — | HA+OFI |
+| 8a | `f821b16` (remoto) | 16-abr | 0.62 | 5 | 90s | true | **true** | 0–1 (off) | 1.5m / 5% | — | HA+OFI |
+| 8b | `f821b16` + `.env` local | 17-abr | 0.62 | 5 | 90s | true | true | **0.40–0.85** | 1.5m / 5% | — | HA+OFI |
+| 9 | `d36b3f4` | 24-abr | 0.62 | 5 | 90s | true | true | **0.50–0.60** | **2.5m / 15%** | — | HA+OFI |
+| **10** | `b03ec16` | 27-abr | 0.62 | 5 | 90s | true | true | **0.50–0.52** | 2.5m / 15% | **[6,10,16,21,22,23]** | **OFI only** |
 
 ### Resultados (paper-trading acumulado)
 
@@ -343,7 +454,8 @@ Cada linha = uma versão de código (commit-pai do commit que introduziu a próx
 | 7 | `83a4a7b` | +outcome API settlement, +PTB safe margin $30 | 44 / 50.0% / **+$11.34** | 71 / 42.3% / +$4.52 |
 | 8a | `f821b16` (remoto) | **disableStopLoss=true** (5m); sem entry filter | 51 / 29.4% / −$1.98 | 69 / 37.7% / −$12.01 |
 | 8b | `f821b16` + `.env` local | idem + `.env` override: entry 0.40–0.85 | 39 / 51.3% / **+$4.96** | 188 / 48.9% / **+$15.27** |
-| **9** | `d36b3f4` (HEAD) | entry filter 15m 0.45–0.58 / 5m 0.50–0.60; disableSignalFlip=true (15m); highConvMult=2× (15m); TD 5m 2.5m/15% | **em curso** | **em curso** |
+| 9 | `d36b3f4` | entry filter 15m 0.45–0.58 / 5m 0.50–0.60; disableSignalFlip=true (15m); highConvMult=2× (15m); TD 5m 2.5m/15% | 110 / 44.5% / +$4.68 ☁ | 394 / 29.9% / −$1.58 ☁ |
+| **10** | `b03ec16` | +blockedHours 15m+5m; entry max 5m 0.60→0.52; +blockedRegimes CHOP/RANGE (15m); OFI-only filter (5m) | **em curso** | **em curso** |
 
 ### Observações para fine-tuning
 
@@ -368,7 +480,10 @@ Cada linha = uma versão de código (commit-pai do commit que introduziu a próx
 | 7 | `83a4a7b` | 44 | 50.0% | +$11.34 | 71 | 42.3% | +$4.52 |
 | 8a | `f821b16` (remoto) | 51 | 29.4% | −$1.98 | 69 | 37.7% | −$12.01 |
 | 8b | `f821b16` + `.env` local | 39 | 51.3% | +$4.96 | 188 | 48.9% | +$15.27 |
-| **9** | `d36b3f4` (HEAD) | — | — | — | — | — | — |
+| 9 | `d36b3f4` ☁ | 110 | 44.5% | +$4.68 | 394 | 29.9% | −$1.58 |
+| **10** | `b03ec16` | — | — | — | — | — | — |
+
+☁ = run em cloud (não local WSL)
 
 ### Principais decisões estratégicas e aprendizados
 
@@ -378,3 +493,8 @@ Cada linha = uma versão de código (commit-pai do commit que introduziu a próx
 | ~2026-04-13 | Elevar `signalFlipMinProb` 5m: 0.58→0.62; `flipConfirmTicks` 5m: 2→5 | 158 SIGNAL_FLIPs com 3.8% win rate — limiar muito baixo capturava blips transitórios |
 | ~2026-04-15 | Desabilitar SIGNAL_FLIP no 5m por completo | Mesmo com 0.62, a taxa de exit prematuro ainda era alta demais |
 | ~2026-04-16 | Desabilitar STOP_LOSS no 5m | 161 SL trades: 78% corretos mas 22% cortou winners; hold-to-settlement domina com 85% win rate settled |
+| 2026-04-27 | Filtro de horário UTC — 15m: bloquear 00–02h, 05–06h, 15–16h | 28 trades nesses horários geraram −$21.64; restantes +$26.33. Horas ruins provavelmente refletem baixa liquidez (madrugada UTC) e abertura NY com volatilidade caótica |
+| 2026-04-27 | Filtro de horário UTC — 5m: bloquear 06h, 10h, 16h, 21–23h | 130 trades ruins geraram −$20.36. 16h (abertura NY) e 21–23h (fim de tarde NY) são consistentemente negativos |
+| 2026-04-27 | Rebaixar teto de entrada 5m de 0.60 → 0.52 | 219 trades com entry ≥ 0.52 geraram −$11.44 (−$0.052/trade); 175 trades < 0.52 geraram +$9.86 (+$0.056/trade). Preços mais altos refletem menor incerteza do mercado — menos edge disponível |
+| 2026-04-27 | Bloquear entradas em regime CHOP e RANGE no 15m | Segunda metade da run v9 (trades 56–110) teve TIME_DECAY 6→12 e STOP_LOSS 5→11. CHOP/RANGE têm sinal direcional fraco — modelo oscila mais e saídas prematuras aumentam |
+| 2026-04-27 | OFI-only filter no 5m: remover exigência de HA concordar com OFI | OFI é o sinal primário do modelo 5m. Exigir que AMBOS HA+OFI discordassem era permissivo demais. OFI sozinho com `|ofi_1m| > 0.05` é condição suficiente para bloquear |
