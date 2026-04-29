@@ -13,4 +13,4 @@ COPY --from=builder /build/dist ./dashboard/dist
 
 RUN mkdir -p logs
 
-CMD ["node", "src/logServer.js"]
+CMD ["node", "--max-old-space-size=96", "src/logServer.js"]

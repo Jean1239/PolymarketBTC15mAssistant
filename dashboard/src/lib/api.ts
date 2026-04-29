@@ -57,18 +57,18 @@ export interface Signal15m {
   signal: string
   model_up: number
   model_down: number
-  edge_up: number
-  edge_down: number
+  edge_up: number | null
+  edge_down: number | null
   rec_detail: string
-  rsi: number
-  rsi_slope: number
-  macd_hist: number
+  rsi: number | null
+  rsi_slope: number | null
+  macd_hist: number | null
   macd_label: string
   ha_color: string
-  ha_count: number
-  vwap: number
-  vwap_dist_pct: number
-  vwap_slope: number
+  ha_count: number | null
+  vwap: number | null
+  vwap_dist_pct: number | null
+  vwap_slope: number | null
   sim_action: string
   sim_side: string
   sim_entry_price: number | null
@@ -90,21 +90,21 @@ export interface Signal5m {
   signal: string
   model_up: number
   model_down: number
-  edge_up: number
-  edge_down: number
+  edge_up: number | null
+  edge_down: number | null
   rec_detail: string
-  ofi_30s: number
-  ofi_1m: number
-  ofi_2m: number
-  roc1: number
-  roc3: number
+  ofi_30s: number | null
+  ofi_1m: number | null
+  ofi_2m: number | null
+  roc1: number | null
+  roc3: number | null
   ema_cross: string
-  rsi: number
+  rsi: number | null
   ha_color: string
-  ha_count: number
-  vwap: number
-  vwap_dist_pct: number
-  vwap_slope: number
+  ha_count: number | null
+  vwap: number | null
+  vwap_dist_pct: number | null
+  vwap_slope: number | null
   sim_action: string
   sim_side: string
   sim_entry_price: number | null

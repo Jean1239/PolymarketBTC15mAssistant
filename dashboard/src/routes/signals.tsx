@@ -150,9 +150,9 @@ function Signal15mCard({ s, now }: { s: Signal15m; now: number }) {
 
         <div className="grid grid-cols-2 gap-x-4 min-h-[140px]">
           <div>
-            <Kv label="Market UP" value={`${(s.market_up * 100).toFixed(0)}¢`} mono />
-            <Kv label="Market DOWN" value={`${(s.market_down * 100).toFixed(0)}¢`} mono />
-            <Kv label="Edge UP" value={<span className={s.edge_up > 0 ? "text-green-500" : "text-red-500"}>{s.edge_up.toFixed(3)}</span>} />
+            <Kv label="Market UP" value={`${((s.market_up ?? 0) * 100).toFixed(0)}¢`} mono />
+            <Kv label="Market DOWN" value={`${((s.market_down ?? 0) * 100).toFixed(0)}¢`} mono />
+            <Kv label="Edge UP" value={s.edge_up != null ? <span className={s.edge_up > 0 ? "text-green-500" : "text-red-500"}>{s.edge_up.toFixed(3)}</span> : "—"} />
             <Kv label="HA" value={<span className={s.ha_color === "green" ? "text-green-500" : "text-red-500"}>{s.ha_color} ×{s.ha_count}</span>} />
           </div>
           <div>
@@ -211,8 +211,8 @@ function Signal5mCard({ s, now }: { s: Signal5m; now: number }) {
 
         <div className="grid grid-cols-2 gap-x-4 min-h-[140px]">
           <div>
-            <Kv label="Market UP" value={`${(s.market_up * 100).toFixed(0)}¢`} mono />
-            <Kv label="Market DOWN" value={`${(s.market_down * 100).toFixed(0)}¢`} mono />
+            <Kv label="Market UP" value={`${((s.market_up ?? 0) * 100).toFixed(0)}¢`} mono />
+            <Kv label="Market DOWN" value={`${((s.market_down ?? 0) * 100).toFixed(0)}¢`} mono />
             <Kv label="OFI 30s" value={s.ofi_30s?.toFixed(2)} mono />
             <Kv label="ROC 1m" value={s.roc1?.toFixed(5)} mono />
             <Kv label="ROC 3m" value={s.roc3?.toFixed(5)} mono />
