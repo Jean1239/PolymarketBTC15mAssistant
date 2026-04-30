@@ -116,15 +116,17 @@ Called once at startup via `applyGlobalProxyFromEnv()`. Reads `HTTPS_PROXY`/`HTT
 | `TRADE_STOP_LOSS_PCT` | `25` | ROI % loss to recommend stop-loss (requires model reversal) |
 | `TRADE_SIGNAL_FLIP_PROB` | `0.58` (15m) / `0.62` (5m) | Min opposite-side probability to consider model reversed |
 | `TRADE_SL_MIN_PROB` | `0.65` | Min opposite-side probability specifically to trigger stop-loss (can be stricter than flip prob) |
-| `TRADE_SL_MIN_DURATION_S` | `120` | Minimum seconds a position must be held before stop-loss can fire |
+| `TRADE_SL_MIN_DURATION_S` | `240` | Minimum seconds a position must be held before stop-loss can fire |
 | `TRADE_FLIP_COOLDOWN_S` | `60` (15m) / `90` (5m) | Seconds to wait after a SIGNAL_FLIP before re-entering the same market |
 | `TRADE_FLIP_CONFIRM_TICKS` | `2` (15m) / `5` (5m) | Consecutive confirming ticks required before SIGNAL_FLIP exit fires |
-| `TRADE_ENTRY_MIN_PRICE` | `0.45` | 15m: minimum market price of chosen side to allow entry |
+| `TRADE_ENTRY_MIN_PRICE` | `0.50` | 15m: minimum market price of chosen side to allow entry (raised from 0.45 — [0.45-0.50) band has <50% settlement win rate) |
 | `TRADE_ENTRY_MAX_PRICE` | `0.58` | 15m: maximum market price of chosen side to allow entry |
 | `TRADE_ENTRY_MIN_PRICE_5M` | `0.50` | 5m: minimum market price of chosen side to allow entry |
 | `TRADE_ENTRY_MAX_PRICE_5M` | `0.52` | 5m: maximum market price of chosen side to allow entry (lowered from 0.60 — entries ≥ 0.52 were net-losers in dry-run analysis) |
-| `TRADE_BLOCKED_HOURS_UTC` | `0,1,2,5,6,15,16` | 15m: comma-separated UTC hours during which new entries are suppressed (dry-run analysis showed consistent negative PnL in these windows) |
-| `TRADE_BLOCKED_HOURS_UTC_5M` | `6,10,16,21,22,23` | 5m: comma-separated UTC hours during which new entries are suppressed |
+| `TRADE_BTC_VS_PTB_MIN_USD` | `5` | 15m: skip entry when \|BTC − price_to_beat\| < this value (near-zero divergence = market undecided, 41.5% win rate). Set to `0` to disable. |
+| `TRADE_DISABLE_TIME_DECAY_5M` | `true` | 5m: disable TIME_DECAY early exits (433 exits cost −$159 vs −$5 from 165 settled trades; hold-to-settlement dominant) |
+| `TRADE_BLOCKED_HOURS_UTC` | `0,2,4,8,11,17,18,21` | 15m: comma-separated UTC hours during which new entries are suppressed (dry-run analysis showed consistent negative PnL in these windows) |
+| `TRADE_BLOCKED_HOURS_UTC_5M` | `2,3,6,10,16,19,20,21` | 5m: comma-separated UTC hours during which new entries are suppressed |
 | `TRADE_BLOCKED_REGIMES` | `CHOP,RANGE` | 15m: comma-separated regime names that block entry; passed to `decide()` in edge.js; valid values: `TREND_UP`, `TREND_DOWN`, `RANGE`, `CHOP` |
 
 ## Output
@@ -150,7 +152,7 @@ createDryRunSimulator5m("./logs/dryrun_5m.csv", CONFIG.trading)    // used by in
 
 **How it works:** the simulator maintains a virtual position and mirrors real trading logic:
 
-1. **BUY** — when the bot emits an `ENTER` signal and no virtual position is open, it simulates a buy at the current market price (using `CONFIG.trading.tradeAmount` as the virtual investment). The buy is suppressed if the market price falls outside `[entryMinMarketPrice, entryMaxMarketPrice]` or if the current UTC hour is in `blockedHoursUtc` — matching the same gates applied in live trading (`executor.js`).
+1. **BUY** — when the bot emits an `ENTER` signal and no virtual position is open, it simulates a buy at the current market price (using `CONFIG.trading.tradeAmount` as the virtual investment). The buy is suppressed if the market price falls outside `[entryMinMarketPrice, entryMaxMarketPrice]`, if the current UTC hour is in `blockedHoursUtc`, or (15m only) if `|btcPrice − priceToBeat| < btcVsPtbMinAbsUsd` — matching the same gates applied in live trading (`executor.js`).
 2. **HOLD** — while a position is open, each tick evaluates exit conditions using the same `evaluateExit` logic as real trading (take profit, stop loss, signal flip, time decay).
 3. **SELL** — when an exit condition triggers, the position is closed at the current market price. ROI and PNL are recorded.
 4. **SETTLEMENT** — when the market slug changes (settlement), any open position resolves at $1 (if the held side won) or $0 (if it lost).
@@ -170,9 +172,11 @@ After selling, the simulator can re-enter on a new signal within the same market
 
 **Stop-loss (5m — disabled):** `disableStopLoss = true` in config5m.js. Analysis of 161 SL trades showed 78% correctly exited before a total loss, but the 22% that cut eventual winners cost far more than the savings: real SL PnL was −$75.65 vs hypothetical hold-to-settlement PnL of −$25.64 (+$50 left on the table). With an 85% settled win rate, holding to settlement is the dominant strategy on 5m.
 
-**Stop-loss guards (15m):** the 15m simulator uses `stopLossMinProb = 0.65` (stricter than the `signalFlipMinProb` gate) and `stopLossMinDurationS = 120` to avoid being stopped out in the first ~2 minutes of a volatile move.
+**Stop-loss guards (15m):** the 15m simulator uses `stopLossMinProb = 0.65` (stricter than the `signalFlipMinProb` gate) and `stopLossMinDurationS = 240` to avoid being stopped out before the position has aged 4 minutes.
 
 **Signal-flip (5m — disabled):** `disableSignalFlip = true`. A 5-day dry-run showed 158 SIGNAL_FLIP exits with only 3.8% winning — the lower threshold was catching transient blips across 0.58 that then reverted, cutting positions that would have settled as wins.
+
+**Time-decay (5m — disabled):** `disableTimeDecay = true` in config5m.js. Cloud run analysis (2026-04-27 to 2026-04-29) showed 433 TIME_DECAY exits totalling −$159.63 while 161 SETTLED_WINs produced +$154.79 (97.6% settled win rate). Hold-to-settlement is the dominant strategy on 5m; TIME_DECAY destroys value by cutting positions that would have won.
 
 **Output files:**
 

@@ -203,7 +203,7 @@ async function main() {
       }
       resetIfMarketChanged(marketSlugNow);
 
-      await processActionQueue(keyboard.actionQueue, { trading, poly, rec, timeAware, marketSlugNow, botLabel: "5m", sawMarketStart });
+      await processActionQueue(keyboard.actionQueue, { trading, poly, rec, timeAware, marketSlugNow, btcPrice: currentPrice, priceToBeat, botLabel: "5m", sawMarketStart });
 
       if (trading.tradingEnabled && Date.now() - usdcLastFetchMs > 30_000) {
         usdcLastFetchMs = Date.now();
@@ -323,6 +323,7 @@ async function main() {
         ptbSafeMarginUsd: CONFIG.trading.ptbSafeMarginUsd,
         disableStopLoss: CONFIG.trading.disableStopLoss ?? false,
         disableSignalFlip: CONFIG.trading.disableSignalFlip ?? false,
+        disableTimeDecay: CONFIG.trading.disableTimeDecay ?? false,
         timeDecayMinLeftMin: CONFIG.trading.timeDecayMinLeftMin ?? 2.5,
         timeDecayMinLossPct: CONFIG.trading.timeDecayMinLossPct ?? 15,
       };

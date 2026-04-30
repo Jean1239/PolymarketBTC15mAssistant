@@ -24,9 +24,11 @@ function logError(msg) {
  * @param {object} ctx.rec          - decide() / decide5m() result
  * @param {object} ctx.timeAware    - applyTimeAwareness() result
  * @param {string} ctx.marketSlugNow
+ * @param {number|null} [ctx.btcPrice]    - live BTC/USD price (for btcVsPtb entry filter)
+ * @param {number|null} [ctx.priceToBeat] - latched BTC open price (for btcVsPtb entry filter)
  * @param {Function} [ctx.onSold]   - called with { side, entryPrice, exitPrice, pnl, roi } after a sell
  */
-export async function processActionQueue(actionQueue, { trading, poly, rec, timeAware, marketSlugNow, onSold, botLabel = "bot", sawMarketStart = true }) {
+export async function processActionQueue(actionQueue, { trading, poly, rec, timeAware, marketSlugNow, btcPrice = null, priceToBeat = null, onSold, botLabel = "bot", sawMarketStart = true }) {
   while (actionQueue.length && trading.tradingEnabled && poly.ok) {
     const action = actionQueue.shift();
     const marketUp = poly.prices.up;
@@ -57,6 +59,14 @@ export async function processActionQueue(actionQueue, { trading, poly, rec, time
       if (blockedHours.includes(currentUtcHour)) {
         setStatusMessage(`Entrada bloqueada — hora UTC ${currentUtcHour}h na lista de horas filtradas`, 5000);
         continue;
+      }
+      const btcVsPtbMinAbs = trading.btcVsPtbMinAbsUsd ?? 0;
+      if (btcVsPtbMinAbs > 0 && btcPrice != null && priceToBeat != null) {
+        const btcVsPtb = Math.abs(btcPrice - priceToBeat);
+        if (btcVsPtb < btcVsPtbMinAbs) {
+          setStatusMessage(`Entrada bloqueada — BTC vs PTB $${btcVsPtb.toFixed(1)} abaixo do mínimo $${btcVsPtbMinAbs}`, 5000);
+          continue;
+        }
       }
       const tokenId = side === "UP" ? poly.tokens.upTokenId : poly.tokens.downTokenId;
       const book = side === "UP" ? poly.orderbook.up : poly.orderbook.down;

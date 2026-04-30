@@ -108,7 +108,7 @@ export function resetIfMarketChanged(currentSlug) {
 
 // Avalia se a posição aberta deve ser encerrada.
 // Retorna { shouldSell, reason, urgency } onde urgency é "HIGH" | "MEDIUM" | null
-export function evaluateExit({ position, modelUp, modelDown, currentMarketPrice, timeLeftMin, takeProfitPct, stopLossPct, signalFlipMinProb, stopLossMinProb = null, stopLossMinDurationS = 0, flipConfirmCount = 0, flipConfirmTicks = 1, btcPrice = null, priceToBeat = null, ptbSafeMarginUsd = 30, disableStopLoss = false, disableSignalFlip = false, timeDecayMinLeftMin = 1.5, timeDecayMinLossPct = 5 }) {
+export function evaluateExit({ position, modelUp, modelDown, currentMarketPrice, timeLeftMin, takeProfitPct, stopLossPct, signalFlipMinProb, stopLossMinProb = null, stopLossMinDurationS = 0, flipConfirmCount = 0, flipConfirmTicks = 1, btcPrice = null, priceToBeat = null, ptbSafeMarginUsd = 30, disableStopLoss = false, disableSignalFlip = false, disableTimeDecay = false, timeDecayMinLeftMin = 1.5, timeDecayMinLossPct = 5 }) {
   if (!position.active || currentMarketPrice == null) {
     return { shouldSell: false, reason: null, urgency: null, flipConfirmCount: 0 };
   }
@@ -157,9 +157,9 @@ export function evaluateExit({ position, modelUp, modelDown, currentMarketPrice,
     return { shouldSell: false, reason: null, urgency: null, roiPct, flipConfirmCount: newCount };
   }
 
-  // 4. Pouco tempo + perdendo — suprimido se PTB seguro; só aplica se entrada cara (>= 50¢)
+  // 4. Pouco tempo + perdendo — suprimido se PTB seguro, desabilitado por config, ou entrada barata (< 50¢)
   const entryWasCheap = position.entryPrice < 0.50;
-  if (!ptbSafe && timeLeftMin != null && timeLeftMin < timeDecayMinLeftMin && roiPct < -timeDecayMinLossPct && !entryWasCheap) {
+  if (!ptbSafe && !disableTimeDecay && timeLeftMin != null && timeLeftMin < timeDecayMinLeftMin && roiPct < -timeDecayMinLossPct && !entryWasCheap) {
     return { shouldSell: true, reason: "TIME_DECAY", urgency: "MEDIUM", roiPct, flipConfirmCount: 0 };
   }
 

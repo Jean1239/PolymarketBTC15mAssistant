@@ -28,10 +28,106 @@ O comando lê `logs/dryrun_15m_trades.csv` e `logs/dryrun_5m_trades.csv` e impri
 
 ---
 
+
+## Versão atual — v11
+
+**Ref:** `logs/cloud/extracted/today/` (análise do zip `polymarket-logs-2026-04-29.zip`)  
+**Hash:** *(a ser preenchido após commit)*  
+**Data:** 2026-04-29  
+**Ambiente:** cloud — nenhuma env var definida, todos os parâmetros são os **defaults do código**
+
+### Mudanças vs v10
+Introduzidas após análise dos 209 trades 15m / 613 trades 5m do cloud run v10 (2026-04-27 a 2026-04-29):
+
+1. **5m: desabilitar TIME_DECAY** (`disableTimeDecay = true` em config5m.js). 433 saídas TIME_DECAY geraram −$159.63 enquanto 161 SETTLED_WINs produziram +$154.79 (97.6% win rate). Mesmo padrão do stop-loss e signal-flip já desabilitados: early exit destrói o que seria resolução favorável. Configurável via `TRADE_DISABLE_TIME_DECAY_5M`.
+
+2. **15m: subir `entryMinMarketPrice` de 0.45 → 0.50**. Faixa [0.45–0.50) teve win rate em settlement de 43–48% (abaixo de 50% = odds piores que cara ou coroa). Faixa [0.50–0.52) teve 94.7%; [0.55–0.60) teve 100%. O modelo discorda fortemente do mercado ao entrar barato — e o mercado está certo nessas situações.
+
+3. **15m: novo filtro `btcVsPtbMinAbsUsd = 5`**. Bloqueia entradas quando |BTC − priceToBeat| < $5. Zona de indecisão concentrou 68% das entradas (142/209) com win rate 41.5% e PnL −$14.08. Quando BTC está claramente acima ou abaixo do PTB, o modelo acerta muito mais. Configurável via `TRADE_BTC_VS_PTB_MIN_USD`.
+
+4. **15m: aumentar `stopLossMinDurationS` de 120 → 240s**. 18 dos 34 STOP_LOSSes dispararam exatamente na borda dos 120s. Análise hipotética sugere que segurar mais tempo seria melhor na maioria dos casos (consistente com o padrão 5m).
+
+5. **15m: atualizar `blockedHoursUtc`**: `[0,1,2,5,6,15,16]` → `[0,2,4,8,11,17,18,21]`. Removidos H1,H5,H6,H15,H16 (positivos no período: H16 +$4.93, H15 +$2.81). Adicionados H4 (−$3.29), H8 (−$3.83), H11 (−$3.30), H17 (−$3.04), H18 (−$7.58), H21 (−$2.25).
+
+6. **5m: atualizar `blockedHoursUtc`**: `[6,10,16,21,22,23]` → `[2,3,6,10,16,19,20,21]`. Removidos H22 (+$0.27), H23 (+$2.39). Adicionados H2 (−$3.93), H3 (−$4.92), H19 (−$1.03), H20 (−$2.89).
+
+7. **15m: realinhar faixa de alta convicção**: `[0.45–0.50)` → `[0.50–0.52)`. A faixa anterior agora está fora do range de entrada permitido. A nova faixa coincide com o sweet spot de 94.7% win rate em settlement.
+
+### Parâmetros — 15m
+| Parâmetro | Valor | Env var |
+|---|---|---|
+| `tradeAmount` | $5 (base) | `POLYMARKET_TRADE_AMOUNT` |
+| `takeProfitPct` | 20% | `TRADE_TAKE_PROFIT_PCT` |
+| `stopLossPct` | 25% | `TRADE_STOP_LOSS_PCT` |
+| `signalFlipMinProb` | 0.58 | `TRADE_SIGNAL_FLIP_PROB` |
+| `stopLossMinProb` | 0.65 | `TRADE_SL_MIN_PROB` |
+| `stopLossMinDurationS` | **240s** ✱ | `TRADE_SL_MIN_DURATION_S` |
+| `flipCooldownS` | 60s | `TRADE_FLIP_COOLDOWN_S` |
+| `flipConfirmTicks` | 2 | `TRADE_FLIP_CONFIRM_TICKS` |
+| `ptbSafeMarginUsd` | 30 | `TRADE_PTB_SAFE_MARGIN_USD` |
+| `disableStopLoss` | false | `TRADE_DISABLE_STOP_LOSS` |
+| `disableSignalFlip` | true | `TRADE_DISABLE_SIGNAL_FLIP` |
+| `entryMinMarketPrice` | **0.50** ✱ | `TRADE_ENTRY_MIN_PRICE` |
+| `entryMaxMarketPrice` | 0.58 | `TRADE_ENTRY_MAX_PRICE` |
+| `btcVsPtbMinAbsUsd` | **5** ✱ | `TRADE_BTC_VS_PTB_MIN_USD` |
+| `blockedHoursUtc` | **[0,2,4,8,11,17,18,21]** ✱ | `TRADE_BLOCKED_HOURS_UTC` |
+| `blockedRegimes` | [CHOP,RANGE] | `TRADE_BLOCKED_REGIMES` |
+| `timeDecayMinLeftMin` | 1.5 min | `TRADE_TIME_DECAY_MIN_LEFT_MIN` |
+| `timeDecayMinLossPct` | 5% | `TRADE_TIME_DECAY_MIN_LOSS_PCT` |
+| `highConvictionMultiplier` | 2× | `TRADE_HIGH_CONVICTION_MULT` |
+| `highConvictionMinProb` | 0.70 | `TRADE_HIGH_CONVICTION_MIN_PROB` |
+| `highConvictionEntryMin` | **0.50** ✱ | `TRADE_HIGH_CONVICTION_ENTRY_MIN` |
+| `highConvictionEntryMax` | **0.52** ✱ | `TRADE_HIGH_CONVICTION_ENTRY_MAX` |
+
+### Parâmetros — 5m
+| Parâmetro | Valor | Env var |
+|---|---|---|
+| `tradeAmount` | $5 (base) | `POLYMARKET_TRADE_AMOUNT` |
+| `takeProfitPct` | 20% | `TRADE_TAKE_PROFIT_PCT` |
+| `stopLossPct` | 25% | `TRADE_STOP_LOSS_PCT` |
+| `signalFlipMinProb` | 0.62 | `TRADE_SIGNAL_FLIP_PROB` |
+| `stopLossMinProb` | 0.65 | `TRADE_SL_MIN_PROB` |
+| `stopLossMinDurationS` | 120s | `TRADE_SL_MIN_DURATION_S` |
+| `flipCooldownS` | 90s | `TRADE_FLIP_COOLDOWN_S` |
+| `flipConfirmTicks` | 5 | `TRADE_FLIP_CONFIRM_TICKS` |
+| `ptbSafeMarginUsd` | 30 | `TRADE_PTB_SAFE_MARGIN_USD` |
+| `disableStopLoss` | true | `TRADE_DISABLE_STOP_LOSS_5M` |
+| `disableSignalFlip` | true | `TRADE_DISABLE_SIGNAL_FLIP_5M` |
+| `disableTimeDecay` | **true** ✱ | `TRADE_DISABLE_TIME_DECAY_5M` |
+| `entryMinMarketPrice` | 0.50 | `TRADE_ENTRY_MIN_PRICE_5M` |
+| `entryMaxMarketPrice` | 0.52 | `TRADE_ENTRY_MAX_PRICE_5M` |
+| `blockedHoursUtc` | **[2,3,6,10,16,19,20,21]** ✱ | `TRADE_BLOCKED_HOURS_UTC_5M` |
+| `timeDecayMinLeftMin` | 2.5 min | `TRADE_TIME_DECAY_MIN_LEFT_MIN_5M` |
+| `timeDecayMinLossPct` | 15% | `TRADE_TIME_DECAY_MIN_LOSS_PCT_5M` |
+| `highConvictionMultiplier` | 1 (off) | `TRADE_HIGH_CONVICTION_MULT_5M` |
+
+✱ = mudanças desta versão.
+
+### Impacto esperado vs v10
+| Mudança | Bot | Efeito projetado |
+|---|---|---|
+| disableTimeDecay | 5m | +$50 a +$150/67h (elimina −$159 de TIME_DECAY; assume 40–50% win rate held-to-settlement) |
+| entryMin 0.45→0.50 | 15m | Elimina ~125 trades em [0.45–0.50) que somaram −$14.59 |
+| btcVsPtb filter | 15m | Elimina ~68% das entradas em zona indecisa (win rate 41.5%); reduz volume mas melhora qualidade |
+| SL duration 120→240s | 15m | Evita os 18 SLs na borda 120–180s; menor impacto absoluto |
+| Blocked hours update | 15m | Libera H15,H16 (+$7.74); bloqueia H4,H8,H11,H17,H18,H21 (−$23.29) |
+| Blocked hours update | 5m | Libera H22,H23 (+$2.66); bloqueia H2,H3,H19,H20 (−$10.77) |
+
+### Mudanças de lógica (código — sem env var nova)
+| Componente | Antes | Depois | Razão |
+|---|---|---|---|
+| `position.js — evaluateExit` | `disableTimeDecay` não existia | Novo param `disableTimeDecay = false`; TIME_DECAY pode ser suprimido | Espelha o mesmo padrão de disableStopLoss / disableSignalFlip |
+| `dryRun.js — entry gate` | Price range + hour filter | + `btcVsPtbMinAbsUsd` filter | Filtro de PTB agora no simulator também |
+| `executor.js — buy gate` | Price range + hour filter | + `btcVsPtbMinAbsUsd` filter; aceita `btcPrice`/`priceToBeat` no ctx | Live trading e simulator ficam simétricos |
+
+
+---
+
+
 ## Versão atual — v10
 
 **Ref:** `logs/archive/2026-04-26` (cloud run — baseline desta versão)  
-**Hash:** `b03ec16` (HEAD)  
+**Hash:** `b03ec16`  
 **Data:** 2026-04-27  
 **Ambiente:** cloud — nenhuma env var definida, todos os parâmetros são os **defaults do código**
 
@@ -134,6 +230,63 @@ Introduzidas após análise dos 110 trades 15m / 394 trades 5m da primeira rodad
 | Entry max 0.52 | 5m | 219→175 entradas válidas | ~+$11.44 (entries ≥0.52 evitadas) |
 
 Impacto simulado combinado: 15m +$4.68 → ~+$26 / 5m −$1.58 → ~+$19 (antes dos filtros de regime e OFI, sem dados suficientes para quantificar esses).
+
+### Desempenho real da v10 (cloud run 2026-04-27 → 2026-04-29)
+
+**Ref:** `logs/cloud/extracted/today/` (zip `polymarket-logs-2026-04-29.zip`)  
+**Período:** 2026-04-27T02:30Z → 2026-04-29T22:18Z (~67h)
+
+| Bot | Trades | Win | Loss | Win Rate | PnL | Profit Factor | Max DD | Pior streak |
+|---|---|---|---|---|---|---|---|---|
+| 15m | 209 | 96 | 113 | 45.9% | −$3.09 | 0.98 | $31.02 | 7 |
+| 5m | 613 | 176 | 437 | 28.7% | −$4.76 | 0.97 | $18.17 | 13 |
+
+#### Exit reasons — 15m
+| Razão | Count | Win% | PnL total | Avg/trade |
+|---|---|---|---|---|
+| SETTLED_WIN | 87 | 100% | +$131.55 | +$1.51 |
+| TAKE_PROFIT | 9 | 100% | +$2.84 | +$0.32 |
+| STOP_LOSS | 34 | 0% | −$22.54 | −$0.66 |
+| TIME_DECAY | 19 | 0% | −$14.94 | −$0.79 |
+| SETTLED_LOSS | 60 | 0% | −$100.00 | −$1.67 |
+
+#### Exit reasons — 5m
+| Razão | Count | Win% | PnL total | Avg/trade |
+|---|---|---|---|---|
+| SETTLED_WIN | 161 | 100% | +$154.79 | +$0.96 |
+| TAKE_PROFIT | 15 | 100% | +$4.07 | +$0.27 |
+| SETTLED_LOSS | 4 | 0% | −$4.00 | −$1.00 |
+| TIME_DECAY | 433 | 0% | **−$159.63** | −$0.37 |
+
+#### PnL por dia (UTC)
+| Data | 15m (N / WR / PnL) | 5m (N / WR / PnL) |
+|---|---|---|
+| 2026-04-27 | 80 / 53.8% / +$18.46 | 231 / 24.2% / −$11.24 |
+| 2026-04-28 | 81 / 37.0% / **−$28.40** | 242 / 30.6% / +$1.56 |
+| 2026-04-29 | 48 / 47.9% / +$6.85 | 140 / 32.9% / +$4.91 |
+
+#### Diagnóstico — por que v10 ficou no negativo
+
+**15m: SETTLED_LOSS é o principal dreno (60 trades, −$100)**
+- 35 das 60 SETTLED_LOSS entraram abaixo de $0.48 (win rate em settlement: 48.5%)
+- 22 entraram em [0.48–0.50) (win rate: 43.6%)
+- Apenas 3 entraram em [0.50–0.52) (win rate: **94.7%** — filtro mínimo resolveria quase tudo)
+- Acima de $0.50: settlement win rate é 82–100%. Abaixo: <50% (modelo discorda do mercado quando mercado está certo)
+
+**5m: TIME_DECAY destruiu todo o PnL (433 trades, −$159.63)**
+- 5m tinha `disableSignalFlip = true` e `disableStopLoss = true` desde v8
+- TIME_DECAY era o único early exit ativo e consumiu −$159.63
+- 97.6% settled win rate (161/165 settled) confirma: hold-to-settlement domina no 5m
+- TIME_DECAY corta nas últimas 1.5 min quando a posição está perdendo — mas mesmo posições que estavam caindo frequentemente invertiam ou o mercado resolvia a favor do lado correto
+
+**15m: horas bloqueadas desatualizadas**
+- v10 bloqueou H1,H5,H6,H15,H16 — mas todos esses geraram PnL **positivo** no período (H16: +$4.93, H15: +$2.81)
+- H4, H8, H11, H17, H18, H21 não estavam bloqueados e geraram −$3.29, −$3.83, −$3.30, −$3.04, −$7.58, −$2.25
+
+**15m: entradas em zona de indecisão (|btc_vs_ptb| < $5)**
+- 142 das 209 entradas (68%) ocorreram com BTC dentro de $5 do PTB → win rate 41.5%, PnL −$14.08
+- Entradas com BTC >$20 abaixo do PTB: 75% win rate, +$8.52
+
 
 ---
 
@@ -455,7 +608,8 @@ Cada linha = uma versão de código (commit-pai do commit que introduziu a próx
 | 8a | `f821b16` (remoto) | **disableStopLoss=true** (5m); sem entry filter | 51 / 29.4% / −$1.98 | 69 / 37.7% / −$12.01 |
 | 8b | `f821b16` + `.env` local | idem + `.env` override: entry 0.40–0.85 | 39 / 51.3% / **+$4.96** | 188 / 48.9% / **+$15.27** |
 | 9 | `d36b3f4` | entry filter 15m 0.45–0.58 / 5m 0.50–0.60; disableSignalFlip=true (15m); highConvMult=2× (15m); TD 5m 2.5m/15% | 110 / 44.5% / +$4.68 ☁ | 394 / 29.9% / −$1.58 ☁ |
-| **10** | `b03ec16` | +blockedHours 15m+5m; entry max 5m 0.60→0.52; +blockedRegimes CHOP/RANGE (15m); OFI-only filter (5m) | **em curso** | **em curso** |
+| 10 | `b03ec16` ☁ | +blockedHours 15m+5m; entry max 5m 0.60→0.52; +blockedRegimes CHOP/RANGE (15m); OFI-only filter (5m) | 209 / 45.9% / −$3.09 | 613 / 28.7% / −$4.76 |
+| **11** | *(pending)* | disableTimeDecay 5m; entryMin 15m 0.45→0.50; btcVsPtb filter $5 (15m); SL dur 120→240s; blocked hours 15m+5m revisados | **em curso** | **em curso** |
 
 ### Observações para fine-tuning
 
@@ -481,7 +635,8 @@ Cada linha = uma versão de código (commit-pai do commit que introduziu a próx
 | 8a | `f821b16` (remoto) | 51 | 29.4% | −$1.98 | 69 | 37.7% | −$12.01 |
 | 8b | `f821b16` + `.env` local | 39 | 51.3% | +$4.96 | 188 | 48.9% | +$15.27 |
 | 9 | `d36b3f4` ☁ | 110 | 44.5% | +$4.68 | 394 | 29.9% | −$1.58 |
-| **10** | `b03ec16` | — | — | — | — | — | — |
+| 10 | `b03ec16` ☁ | 209 | 45.9% | −$3.09 | 613 | 28.7% | −$4.76 |
+| **11** | *(pending)* | — | — | — | — | — | — |
 
 ☁ = run em cloud (não local WSL)
 
@@ -498,3 +653,8 @@ Cada linha = uma versão de código (commit-pai do commit que introduziu a próx
 | 2026-04-27 | Rebaixar teto de entrada 5m de 0.60 → 0.52 | 219 trades com entry ≥ 0.52 geraram −$11.44 (−$0.052/trade); 175 trades < 0.52 geraram +$9.86 (+$0.056/trade). Preços mais altos refletem menor incerteza do mercado — menos edge disponível |
 | 2026-04-27 | Bloquear entradas em regime CHOP e RANGE no 15m | Segunda metade da run v9 (trades 56–110) teve TIME_DECAY 6→12 e STOP_LOSS 5→11. CHOP/RANGE têm sinal direcional fraco — modelo oscila mais e saídas prematuras aumentam |
 | 2026-04-27 | OFI-only filter no 5m: remover exigência de HA concordar com OFI | OFI é o sinal primário do modelo 5m. Exigir que AMBOS HA+OFI discordassem era permissivo demais. OFI sozinho com `|ofi_1m| > 0.05` é condição suficiente para bloquear |
+| 2026-04-29 | Desabilitar TIME_DECAY no 5m (`disableTimeDecay = true`) | 433 exits TIME_DECAY = −$159.63; 97.6% settled win rate mostra que manter até o settlement domina. Mesmo padrão do stop-loss (v8) e signal-flip (v5) que também foram desabilitados |
+| 2026-04-29 | Subir `entryMinMarketPrice` 15m: 0.45 → 0.50 | Win rate em settlement [0.45–0.50) = 43–48% (abaixo de 50%). [0.50–0.52) = 94.7%, [0.55–0.60) = 100%. Entradas baratas significam alta discordância modelo↔mercado, e o mercado costuma estar certo |
+| 2026-04-29 | Filtro `btcVsPtbMinAbsUsd = 5` no 15m | 68% das entradas caíam em |btc_vs_ptb| < $5 com win rate 41.5% e PnL −$14.08. Entradas com clareza direcional (BTC longe do PTB) têm win rate 60–75% |
+| 2026-04-29 | Aumentar `stopLossMinDurationS` 15m: 120 → 240s | 18/34 SLs dispararam em 120–180s (na borda); análise hipotética indica que manteriam gerariam melhor resultado na maioria |
+| 2026-04-29 | Revisão de blocked hours 15m e 5m baseada em dados reais v10 | A lista v10 bloqueava horas positivas (H15, H16 com +$7.74 combinado) e deixava passar horas negativas. Atualização baseada no real performance hora-a-hora dos 67h de run |

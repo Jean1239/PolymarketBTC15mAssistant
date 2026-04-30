@@ -186,7 +186,7 @@ async function main() {
 
       resetIfMarketChanged(marketSlugNow);
 
-      await processActionQueue(keyboard.actionQueue, { trading, poly, rec, timeAware, marketSlugNow, botLabel: "15m", sawMarketStart });
+      await processActionQueue(keyboard.actionQueue, { trading, poly, rec, timeAware, marketSlugNow, btcPrice: currentPrice, priceToBeat, botLabel: "15m", sawMarketStart });
 
       if (trading.tradingEnabled && Date.now() - usdcLastFetchMs > 30_000) {
         usdcLastFetchMs = Date.now();

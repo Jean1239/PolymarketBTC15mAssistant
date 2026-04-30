@@ -130,13 +130,13 @@ function evaluateSimExit({ pos, modelUp, modelDown, currentMarketPrice, timeLeft
     return { shouldSell: true, reason: "SIGNAL_FLIP", roiPct };
   }
 
-  // Time decay — suppressed if PTB safe; only for expensive entries (≥ 50¢).
+  // Time decay — suppressed if PTB safe, disabled by config, or cheap entry (< 50¢).
   // Thresholds come from config so the 5m bot can widen the loss requirement
   // and fire earlier than 15m (see config5m.js).
   const entryWasCheap = pos.entryPrice < 0.50;
   const tdMinLeft = config.timeDecayMinLeftMin ?? 1.5;
   const tdMinLoss = config.timeDecayMinLossPct ?? 5;
-  if (!ptbSafe && timeLeftMin != null && timeLeftMin < tdMinLeft && roiPct < -tdMinLoss && !entryWasCheap) {
+  if (!ptbSafe && !config.disableTimeDecay && timeLeftMin != null && timeLeftMin < tdMinLeft && roiPct < -tdMinLoss && !entryWasCheap) {
     return { shouldSell: true, reason: "TIME_DECAY", roiPct };
   }
 
@@ -395,7 +395,12 @@ function createSimulator(csvPath, header, config, label = "bot") {
       const currentUtcHour = new Date().getUTCHours();
       const hourAllowed = !blockedHours.includes(currentUtcHour);
 
-      if (priceAllowed && hourAllowed && entryMktPrice > 0) {
+      // BTC vs PTB filter: block entries when BTC is too close to the price-to-beat
+      const btcVsPtbMinAbs = config.btcVsPtbMinAbsUsd ?? 0;
+      const btcVsPtb = (tickPtb != null && lastBtcPrice != null) ? Math.abs(lastBtcPrice - tickPtb) : null;
+      const btcVsPtbAllowed = btcVsPtbMinAbs <= 0 || btcVsPtb == null || btcVsPtb >= btcVsPtbMinAbs;
+
+      if (priceAllowed && hourAllowed && btcVsPtbAllowed && entryMktPrice > 0) {
         const invested = computeTradeAmount({
           baseAmount: config.tradeAmount,
           side: rec.side,
@@ -499,15 +504,17 @@ export function createDryRunSimulator15m(csvPath, tradingConfig = {}) {
     flipConfirmTicks: tradingConfig.flipConfirmTicks ?? 2,
     disableSignalFlip: tradingConfig.disableSignalFlip ?? false,
     disableStopLoss: tradingConfig.disableStopLoss ?? false,
+    disableTimeDecay: tradingConfig.disableTimeDecay ?? false,
     entryMinMarketPrice: tradingConfig.entryMinMarketPrice ?? 0,
     entryMaxMarketPrice: tradingConfig.entryMaxMarketPrice ?? 1,
+    btcVsPtbMinAbsUsd: tradingConfig.btcVsPtbMinAbsUsd ?? 5,
     timeDecayMinLeftMin: tradingConfig.timeDecayMinLeftMin ?? 1.5,
     timeDecayMinLossPct: tradingConfig.timeDecayMinLossPct ?? 5,
     ptbSafeMarginUsd: tradingConfig.ptbSafeMarginUsd ?? 30,
     highConvictionMultiplier: tradingConfig.highConvictionMultiplier ?? 1,
     highConvictionMinProb: tradingConfig.highConvictionMinProb ?? 0.70,
-    highConvictionEntryMin: tradingConfig.highConvictionEntryMin ?? 0.45,
-    highConvictionEntryMax: tradingConfig.highConvictionEntryMax ?? 0.50,
+    highConvictionEntryMin: tradingConfig.highConvictionEntryMin ?? 0.50,
+    highConvictionEntryMax: tradingConfig.highConvictionEntryMax ?? 0.52,
   };
   return createSimulator(csvPath, HEADER_15M, config, "15m");
 }
@@ -529,15 +536,17 @@ export function createDryRunSimulator5m(csvPath, tradingConfig = {}) {
     flipConfirmTicks: tradingConfig.flipConfirmTicks ?? 5,
     disableSignalFlip: tradingConfig.disableSignalFlip ?? true,
     disableStopLoss: tradingConfig.disableStopLoss ?? true,
+    disableTimeDecay: tradingConfig.disableTimeDecay ?? true,
     entryMinMarketPrice: tradingConfig.entryMinMarketPrice ?? 0,
     entryMaxMarketPrice: tradingConfig.entryMaxMarketPrice ?? 1,
+    btcVsPtbMinAbsUsd: tradingConfig.btcVsPtbMinAbsUsd ?? 0,
     timeDecayMinLeftMin: tradingConfig.timeDecayMinLeftMin ?? 2.5,
     timeDecayMinLossPct: tradingConfig.timeDecayMinLossPct ?? 15,
     ptbSafeMarginUsd: tradingConfig.ptbSafeMarginUsd ?? 30,
     highConvictionMultiplier: tradingConfig.highConvictionMultiplier ?? 1,
     highConvictionMinProb: tradingConfig.highConvictionMinProb ?? 0.70,
-    highConvictionEntryMin: tradingConfig.highConvictionEntryMin ?? 0.45,
-    highConvictionEntryMax: tradingConfig.highConvictionEntryMax ?? 0.50,
+    highConvictionEntryMin: tradingConfig.highConvictionEntryMin ?? 0.50,
+    highConvictionEntryMax: tradingConfig.highConvictionEntryMax ?? 0.52,
   };
   return createSimulator(csvPath, HEADER_5M, config, "5m");
 }

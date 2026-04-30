@@ -36,15 +36,15 @@ export const CONFIG = {
     signalFlipMinProb: Number(process.env.TRADE_SIGNAL_FLIP_PROB || "0.58"), // prob oposta que indica inversão
     // Stop-loss guards: require higher conviction + minimum hold time before stopping out
     stopLossMinProb: Number(process.env.TRADE_SL_MIN_PROB || "0.65"),            // min opposite prob to trigger SL
-    stopLossMinDurationS: Number(process.env.TRADE_SL_MIN_DURATION_S || "120"),  // seconds position must age before SL fires
+    stopLossMinDurationS: Number(process.env.TRADE_SL_MIN_DURATION_S || "240"),  // seconds position must age before SL fires
     // PTB safety guard: suppress SL/SIGNAL_FLIP exits when BTC is this many USD
     // on the winning side of the price-to-beat. Absorbs ~$9 ptb drift + buffer.
     ptbSafeMarginUsd: Number(process.env.TRADE_PTB_SAFE_MARGIN_USD || "30"),
     // Entry price filter: only enter if the market price of the chosen side is
     // within [entryMinMarketPrice, entryMaxMarketPrice].
-    // Defaults come from dry-run analysis: entries below 0.45 and above 0.58
-    // are net-losers on 15m. See STRATEGY_LOG.md.
-    entryMinMarketPrice: Number(process.env.TRADE_ENTRY_MIN_PRICE || "0.45"),
+    // Defaults come from dry-run analysis: entries below 0.50 are net-losers on 15m
+    // (settlement win-rate drops below 50% in [0.45-0.50) band). See STRATEGY_LOG.md.
+    entryMinMarketPrice: Number(process.env.TRADE_ENTRY_MIN_PRICE || "0.50"),
     entryMaxMarketPrice: Number(process.env.TRADE_ENTRY_MAX_PRICE || "0.58"),
     // Cooldown after a SIGNAL_FLIP before re-entering the same market
     flipCooldownS: Number(process.env.TRADE_FLIP_COOLDOWN_S || "60"),
@@ -59,13 +59,17 @@ export const CONFIG = {
     // Only applies to expensive entries (entryPrice >= 0.50).
     timeDecayMinLeftMin: Number(process.env.TRADE_TIME_DECAY_MIN_LEFT_MIN || "1.5"),
     timeDecayMinLossPct: Number(process.env.TRADE_TIME_DECAY_MIN_LOSS_PCT || "5"),
+    // BTC vs price-to-beat entry filter: skip entry when |btcPrice - priceToBeat| < threshold.
+    // Near-zero divergence = market undecided — 41.5% win rate in [-5,+5) zone on 15m.
+    // Set to 0 to disable. Override with TRADE_BTC_VS_PTB_MIN_USD.
+    btcVsPtbMinAbsUsd: Number(process.env.TRADE_BTC_VS_PTB_MIN_USD || "5"),
     // High-conviction position sizing. When entry price ∈ [entryMin, entryMax]
     // AND chosen-side model prob ≥ minProb, trade amount is multiplied.
     // Multiplier=1 disables the feature.
     highConvictionMultiplier: Number(process.env.TRADE_HIGH_CONVICTION_MULT || "2"),
     highConvictionMinProb: Number(process.env.TRADE_HIGH_CONVICTION_MIN_PROB || "0.70"),
-    highConvictionEntryMin: Number(process.env.TRADE_HIGH_CONVICTION_ENTRY_MIN || "0.45"),
-    highConvictionEntryMax: Number(process.env.TRADE_HIGH_CONVICTION_ENTRY_MAX || "0.50"),
+    highConvictionEntryMin: Number(process.env.TRADE_HIGH_CONVICTION_ENTRY_MIN || "0.50"),
+    highConvictionEntryMax: Number(process.env.TRADE_HIGH_CONVICTION_ENTRY_MAX || "0.52"),
     // Regimes in which new entries are blocked (15m only).
     // CHOP and RANGE have low directional signal — more STOP_LOSS and TIME_DECAY events.
     // Override with TRADE_BLOCKED_REGIMES as a comma-separated list (e.g. "CHOP,RANGE").
@@ -73,11 +77,11 @@ export const CONFIG = {
       ? process.env.TRADE_BLOCKED_REGIMES.split(",").map(s => s.trim().toUpperCase())
       : ["CHOP", "RANGE"],
     // Hours (UTC) during which new entries are blocked. Derived from dry-run analysis:
-    // 00–02h, 05–06h, 15–16h show consistent negative PnL on 15m.
-    // Override with TRADE_BLOCKED_HOURS_UTC as a comma-separated list (e.g. "0,1,2").
+    // 00h, 02h, 04h, 08h, 11h, 17–18h, 21h show consistent negative PnL on 15m.
+    // Override with TRADE_BLOCKED_HOURS_UTC as a comma-separated list (e.g. "0,2,4").
     blockedHoursUtc: process.env.TRADE_BLOCKED_HOURS_UTC
       ? process.env.TRADE_BLOCKED_HOURS_UTC.split(",").map(Number)
-      : [0, 1, 2, 5, 6, 15, 16],
+      : [0, 2, 4, 8, 11, 17, 18, 21],
     // When true: paper-trading only — no real orders even if private key is set
     dryRunOnly: (process.env.DRY_RUN || "").toLowerCase() === "true",
     // When true: enables real order execution. Default false = simulated/paper mode.
