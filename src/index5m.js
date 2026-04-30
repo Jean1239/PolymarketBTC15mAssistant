@@ -203,6 +203,14 @@ async function main() {
       }
       resetIfMarketChanged(marketSlugNow);
 
+      // ── Derived display values ─────────────────────────────────────────────
+      const spotPrice    = wsPrice ?? lastPrice;
+      const currentPrice = chainlink?.price ?? null;
+      const marketSlug   = poly.ok ? String(poly.market?.slug ?? "") : "";
+      const settlementMs5m = poly.ok && poly.market?.endDate ? new Date(poly.market.endDate).getTime() : null;
+
+      const priceToBeat = priceLatch.update({ marketSlug, currentPrice, marketStartMs: marketStartMsNow, market: poly.market ?? null });
+
       await processActionQueue(keyboard.actionQueue, { trading, poly, rec, timeAware, marketSlugNow, btcPrice: currentPrice, priceToBeat, botLabel: "5m", sawMarketStart });
 
       if (trading.tradingEnabled && Date.now() - usdcLastFetchMs > 30_000) {
@@ -211,14 +219,6 @@ async function main() {
           .then((bal) => { usdcBalance = bal; usdcBalanceError = null; })
           .catch((err) => { usdcBalanceError = err?.message ? err.message.slice(0, 40) : "erro"; });
       }
-
-      // ── Derived display values ─────────────────────────────────────────────
-      const spotPrice    = wsPrice ?? lastPrice;
-      const currentPrice = chainlink?.price ?? null;
-      const marketSlug   = poly.ok ? String(poly.market?.slug ?? "") : "";
-      const settlementMs5m = poly.ok && poly.market?.endDate ? new Date(poly.market.endDate).getTime() : null;
-
-      const priceToBeat = priceLatch.update({ marketSlug, currentPrice, marketStartMs: marketStartMsNow, market: poly.market ?? null });
 
       const settled = await tracker.update({ marketSlug, rec, marketUp, marketDown, currentPrice, priceToBeat });
       if (settled) {
