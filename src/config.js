@@ -55,6 +55,11 @@ export const CONFIG = {
     //     performs better. Enable via TRADE_DISABLE_SIGNAL_FLIP=false to re-activate.
     disableSignalFlip: (process.env.TRADE_DISABLE_SIGNAL_FLIP ?? "true").toLowerCase() === "true",
     disableStopLoss: (process.env.TRADE_DISABLE_STOP_LOSS ?? "false").toLowerCase() === "true",
+    // Disable TIME_DECAY on 15m: 143 exits over 5 days totalled -$139.86 while non-TD
+    // trades (SETTLED_WIN + SL) netted +$100.22 at 73.6% WR. Raising entryMinMarketPrice
+    // to 0.50 made every single trade qualify for TD — same pattern that caused -$159 on 5m
+    // in v10. Hold-to-settlement is the dominant strategy. Override with TRADE_DISABLE_TIME_DECAY.
+    disableTimeDecay: (process.env.TRADE_DISABLE_TIME_DECAY ?? "true").toLowerCase() === "true",
     // TIME_DECAY exit: fires when time-left (min) < X AND losing more than Y%.
     // Only applies to expensive entries (entryPrice >= 0.50).
     timeDecayMinLeftMin: Number(process.env.TRADE_TIME_DECAY_MIN_LEFT_MIN || "1.5"),
@@ -76,12 +81,15 @@ export const CONFIG = {
     blockedRegimes: process.env.TRADE_BLOCKED_REGIMES
       ? process.env.TRADE_BLOCKED_REGIMES.split(",").map(s => s.trim().toUpperCase())
       : ["CHOP", "RANGE"],
-    // Hours (UTC) during which new entries are blocked. Derived from dry-run analysis:
-    // 00h, 02h, 04h, 08h, 11h, 17–18h, 21h show consistent negative PnL on 15m.
-    // Override with TRADE_BLOCKED_HOURS_UTC as a comma-separated list (e.g. "0,2,4").
+    // Hours (UTC) during which new entries are blocked. Derived from dry-run analysis
+    // (v11, 30-Apr to 04-May, 291 trades):
+    // Released H02 (+$1.81) and H04 (+$2.32) — positive in this period.
+    // Added H09 (-$6.75), H19 (-$7.36), H22 (-$4.27) — consistently negative.
+    // Retained H00, H08, H11, H17, H18, H21 from v11 analysis.
+    // Override with TRADE_BLOCKED_HOURS_UTC as a comma-separated list (e.g. "0,9,19").
     blockedHoursUtc: process.env.TRADE_BLOCKED_HOURS_UTC
       ? process.env.TRADE_BLOCKED_HOURS_UTC.split(",").map(Number)
-      : [0, 2, 4, 8, 11, 17, 18, 21],
+      : [0, 8, 9, 11, 17, 18, 19, 21, 22],
     // When true: paper-trading only — no real orders even if private key is set
     dryRunOnly: (process.env.DRY_RUN || "").toLowerCase() === "true",
     // When true: enables real order execution. Default false = simulated/paper mode.

@@ -281,6 +281,7 @@ async function main() {
         ptbSafeMarginUsd: CONFIG.trading.ptbSafeMarginUsd,
         disableStopLoss: CONFIG.trading.disableStopLoss ?? false,
         disableSignalFlip: CONFIG.trading.disableSignalFlip ?? false,
+        disableTimeDecay: CONFIG.trading.disableTimeDecay ?? true,
         timeDecayMinLeftMin: CONFIG.trading.timeDecayMinLeftMin ?? 1.5,
         timeDecayMinLossPct: CONFIG.trading.timeDecayMinLossPct ?? 5,
       };
