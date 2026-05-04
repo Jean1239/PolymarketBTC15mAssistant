@@ -154,9 +154,10 @@ Called once at startup via `applyGlobalProxyFromEnv()`. Reads `HTTPS_PROXY`/`HTT
 | `TRADE_ENTRY_MIN_PRICE_5M` | `0.50` | 5m: minimum market price of chosen side to allow entry |
 | `TRADE_ENTRY_MAX_PRICE_5M` | `0.52` | 5m: maximum market price of chosen side to allow entry (lowered from 0.60 — entries ≥ 0.52 were net-losers in dry-run analysis) |
 | `TRADE_BTC_VS_PTB_MIN_USD` | `5` | 15m: skip entry when \|BTC − price_to_beat\| < this value (near-zero divergence = market undecided, 41.5% win rate). Set to `0` to disable. |
+| `TRADE_DISABLE_TIME_DECAY` | `true` | 15m: disable TIME_DECAY early exits (143 exits cost −$139.86 while non-TD trades netted +$100.22 at 73.6% WR; hold-to-settlement dominant) |
 | `TRADE_DISABLE_TIME_DECAY_5M` | `true` | 5m: disable TIME_DECAY early exits (433 exits cost −$159 vs −$5 from 165 settled trades; hold-to-settlement dominant) |
-| `TRADE_BLOCKED_HOURS_UTC` | `0,2,4,8,11,17,18,21` | 15m: comma-separated UTC hours during which new entries are suppressed (dry-run analysis showed consistent negative PnL in these windows) |
-| `TRADE_BLOCKED_HOURS_UTC_5M` | `2,3,6,10,16,19,20,21` | 5m: comma-separated UTC hours during which new entries are suppressed |
+| `TRADE_BLOCKED_HOURS_UTC` | `0,8,9,11,17,18,19,21,22` | 15m: comma-separated UTC hours during which new entries are suppressed (dry-run analysis showed consistent negative PnL in these windows) |
+| `TRADE_BLOCKED_HOURS_UTC_5M` | `2,3,4,6,10,16,19,20` | 5m: comma-separated UTC hours during which new entries are suppressed |
 | `TRADE_BLOCKED_REGIMES` | `CHOP,RANGE` | 15m: comma-separated regime names that block entry; passed to `decide()` in edge.js; valid values: `TREND_UP`, `TREND_DOWN`, `RANGE`, `CHOP` |
 
 ## Output
