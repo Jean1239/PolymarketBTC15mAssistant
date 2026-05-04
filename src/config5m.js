@@ -56,10 +56,13 @@ export const CONFIG = {
     // Lowered from 0.60: dry-run shows entries >= 0.52 are net-losers (-$11.44 vs +$9.86 below).
     entryMaxMarketPrice: Number(process.env.TRADE_ENTRY_MAX_PRICE_5M || "0.52"),
     // Hours (UTC) during which new entries are blocked. Overrides 15m list.
-    // 02h–03h, 06h, 10h, 16h, 19h–21h are consistent destroyers on 5m dry-run.
+    // Updated from v11 analysis (30-Apr to 04-May, 592 trades):
+    // Released H21 (+$10.49 in 23 trades — was the single best hour, erroneously blocked).
+    // Added H04 (-$8.43 in 34 trades — worst unblocked hour).
+    // Retained H02, H03, H06, H10, H16, H19, H20 from v11 analysis.
     blockedHoursUtc: process.env.TRADE_BLOCKED_HOURS_UTC_5M
       ? process.env.TRADE_BLOCKED_HOURS_UTC_5M.split(",").map(Number)
-      : [2, 3, 6, 10, 16, 19, 20, 21],
+      : [2, 3, 4, 6, 10, 16, 19, 20],
     // Tighter TIME_DECAY on 5m: require ≥15% loss before cutting (vs 5% on 15m),
     // and fire earlier (2.5 min left vs 1.5 min). Cuts clearly-lost positions
     // sooner but avoids trimming the small recoveries seen near settlement.
