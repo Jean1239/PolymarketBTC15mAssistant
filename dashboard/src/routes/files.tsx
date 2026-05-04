@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
-import { useState, useCallback } from "react"
+import { useState, useCallback, useRef, useEffect } from "react"
 import { Download, FolderArchive, FileSpreadsheet, FileJson, FileText, AlertCircle, Package } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
 import { ClearLogsButton } from "@/components/clear-logs-button"
 import { api, type LogFile } from "@/lib/api"
 
@@ -27,6 +28,32 @@ function FileIcon({ name }: { name: string }) {
   return <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
 }
 
+function IndeterminateCheckbox({
+  checked,
+  indeterminate,
+  onCheckedChange,
+}: {
+  checked: boolean
+  indeterminate: boolean
+  onCheckedChange: (checked: boolean) => void
+}) {
+  const ref = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (ref.current) {
+      ;(ref.current as unknown as { indeterminate: boolean }).indeterminate = indeterminate
+    }
+  }, [indeterminate])
+
+  return (
+    <Checkbox
+      ref={ref}
+      checked={indeterminate ? "indeterminate" : checked}
+      onCheckedChange={(val) => onCheckedChange(val === true)}
+    />
+  )
+}
+
 function FileRow({
   file,
   selected,
@@ -42,13 +69,10 @@ function FileRow({
       className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
       onClick={() => onToggle(file.name)}
     >
-      <td className="py-3 px-4 w-10">
-        <input
-          type="checkbox"
+      <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
+        <Checkbox
           checked={selected}
-          onChange={() => onToggle(file.name)}
-          onClick={(e) => e.stopPropagation()}
-          className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+          onCheckedChange={() => onToggle(file.name)}
         />
       </td>
       <td className="py-3 px-4">
@@ -68,11 +92,10 @@ function FileRow({
       <td className="py-3 px-4 text-right text-muted-foreground text-xs whitespace-nowrap hidden sm:table-cell">
         {new Date(file.modified).toLocaleString("pt-BR")}
       </td>
-      <td className="py-3 px-4 text-right">
+      <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
         <a
           href={`/api/files/download?name=${encodeURIComponent(file.name)}`}
           download={file.name}
-          onClick={(e) => e.stopPropagation()}
         >
           <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
             <Download className="h-3.5 w-3.5" />
@@ -90,38 +113,34 @@ function FilesPage() {
     refetchInterval: 30_000,
   })
 
-  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [selectedNames, setSelectedNames] = useState<string[]>([])
   const [downloading, setDownloading] = useState(false)
 
   const toggleFile = useCallback((name: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
-      return next
-    })
+    setSelectedNames((prev) =>
+      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
+    )
   }, [])
 
   const allNames = data?.map((f) => f.name) ?? []
-  const allChecked = allNames.length > 0 && allNames.every((n) => selected.has(n))
-  const someChecked = allNames.some((n) => selected.has(n)) && !allChecked
+  const allChecked = allNames.length > 0 && allNames.every((n) => selectedNames.includes(n))
+  const someChecked = allNames.some((n) => selectedNames.includes(n)) && !allChecked
 
-  const toggleAll = useCallback(() => {
-    if (allChecked || someChecked) {
-      setSelected(new Set())
-    } else {
-      setSelected(new Set(allNames))
-    }
-  }, [allChecked, someChecked, allNames])
+  const toggleAll = useCallback(
+    (checked: boolean) => {
+      setSelectedNames(checked ? allNames : [])
+    },
+    [allNames]
+  )
 
   const downloadSelected = useCallback(async () => {
-    if (selected.size === 0) return
+    if (selectedNames.length === 0) return
     setDownloading(true)
     try {
       const res = await fetch("/api/files/zip-selected", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ names: Array.from(selected) }),
+        body: JSON.stringify({ names: selectedNames }),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const blob = await res.blob()
@@ -136,12 +155,13 @@ function FilesPage() {
     } finally {
       setDownloading(false)
     }
-  }, [selected])
+  }, [selectedNames])
 
   const included = data?.filter((f) => f.size <= ZIP_MAX_BYTES) ?? []
   const excluded = data?.filter((f) => f.size > ZIP_MAX_BYTES) ?? []
   const totalSize = data?.reduce((s, f) => s + f.size, 0) ?? 0
-  const selectedSize = data?.filter((f) => selected.has(f.name)).reduce((s, f) => s + f.size, 0) ?? 0
+  const selectedSize =
+    data?.filter((f) => selectedNames.includes(f.name)).reduce((s, f) => s + f.size, 0) ?? 0
 
   return (
     <div className="p-4 md:p-6 space-y-4">
@@ -157,17 +177,12 @@ function FilesPage() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <ClearLogsButton />
-          {selected.size > 0 && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={downloadSelected}
-              disabled={downloading}
-            >
+          {selectedNames.length > 0 && (
+            <Button variant="secondary" size="sm" onClick={downloadSelected} disabled={downloading}>
               <Package className="h-4 w-4 mr-2" />
               {downloading ? "Gerando ZIP…" : "Baixar selecionados"}
               <span className="ml-1.5 text-xs opacity-70">
-                · {selected.size} arquivo{selected.size !== 1 ? "s" : ""} · {formatSize(selectedSize)}
+                · {selectedNames.length} arquivo{selectedNames.length !== 1 ? "s" : ""} · {formatSize(selectedSize)}
               </span>
             </Button>
           )}
@@ -176,7 +191,9 @@ function FilesPage() {
               <Download className="h-4 w-4 mr-2" />
               Baixar tudo (ZIP)
               {included.length > 0 && (
-                <span className="ml-1.5 text-xs opacity-70">· {included.length} arquivo{included.length !== 1 ? "s" : ""}</span>
+                <span className="ml-1.5 text-xs opacity-70">
+                  · {included.length} arquivo{included.length !== 1 ? "s" : ""}
+                </span>
               )}
             </Button>
           </a>
@@ -208,12 +225,10 @@ function FilesPage() {
                 <thead>
                   <tr className="border-b border-border text-muted-foreground text-xs uppercase tracking-wide">
                     <th className="py-3 px-4 w-10">
-                      <input
-                        type="checkbox"
+                      <IndeterminateCheckbox
                         checked={allChecked}
-                        ref={(el) => { if (el) el.indeterminate = someChecked }}
-                        onChange={toggleAll}
-                        className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                        indeterminate={someChecked}
+                        onCheckedChange={toggleAll}
                       />
                     </th>
                     <th className="text-left py-3 px-4 font-medium">Arquivo</th>
@@ -227,7 +242,7 @@ function FilesPage() {
                     <FileRow
                       key={file.name}
                       file={file}
-                      selected={selected.has(file.name)}
+                      selected={selectedNames.includes(file.name)}
                       onToggle={toggleFile}
                     />
                   ))}
