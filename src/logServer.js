@@ -385,6 +385,72 @@ const server = http.createServer((req, res) => {
       return;
     }
 
+    if (p === "/api/files/zip-selected" && req.method === "POST") {
+      let body = "";
+      req.on("data", (chunk) => { body += chunk; });
+      req.on("end", () => {
+        let names;
+        try {
+          ({ names } = JSON.parse(body));
+        } catch {
+          res.writeHead(400); res.end("Invalid JSON"); return;
+        }
+        if (!Array.isArray(names) || names.length === 0) {
+          res.writeHead(400); res.end("names must be a non-empty array"); return;
+        }
+        const invalid = names.find((n) => typeof n !== "string" || n.includes("/") || n.includes("\\") || n.startsWith("."));
+        if (invalid) { res.writeHead(400); res.end("Invalid filename"); return; }
+
+        const date = new Date().toISOString().slice(0, 10);
+        res.writeHead(200, {
+          "Content-Type": "application/zip",
+          "Content-Disposition": `attachment; filename="polymarket-logs-selected-${date}.zip"`,
+          "Cache-Control": "no-store",
+          "Access-Control-Allow-Origin": "*",
+        });
+        const cds = [];
+        let globalOffset = 0;
+        for (const name of names) {
+          const fp = path.join(LOGS_DIR, name);
+          if (!existsSync(fp) || statSync(fp).isDirectory()) continue;
+          if (statSync(fp).size > ZIP_MAX_FILE_BYTES) continue;
+          const data = readFileSync(fp);
+          const nb = Buffer.from(name, "utf8");
+          const d = new Date(statSync(fp).mtime);
+          const dt = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+          const tm = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+          const crc = crc32buf(data);
+          const sz = data.length;
+          const localOff = globalOffset;
+          const lh = Buffer.alloc(30 + nb.length);
+          lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(20, 4); lh.writeUInt16LE(0, 6);
+          lh.writeUInt16LE(0, 8); lh.writeUInt16LE(tm, 10); lh.writeUInt16LE(dt, 12);
+          lh.writeUInt32LE(crc, 14); lh.writeUInt32LE(sz, 18); lh.writeUInt32LE(sz, 22);
+          lh.writeUInt16LE(nb.length, 26); lh.writeUInt16LE(0, 28); nb.copy(lh, 30);
+          res.write(lh);
+          res.write(data);
+          globalOffset += lh.length + sz;
+          const cd = Buffer.alloc(46 + nb.length);
+          cd.writeUInt32LE(0x02014b50, 0); cd.writeUInt16LE(20, 4); cd.writeUInt16LE(20, 6);
+          cd.writeUInt16LE(0, 8); cd.writeUInt16LE(0, 10); cd.writeUInt16LE(tm, 12);
+          cd.writeUInt16LE(dt, 14); cd.writeUInt32LE(crc, 16); cd.writeUInt32LE(sz, 20);
+          cd.writeUInt32LE(sz, 24); cd.writeUInt16LE(nb.length, 28); cd.writeUInt16LE(0, 30);
+          cd.writeUInt16LE(0, 32); cd.writeUInt16LE(0, 34); cd.writeUInt16LE(0, 36);
+          cd.writeUInt32LE(0, 38); cd.writeUInt32LE(localOff, 42); nb.copy(cd, 46);
+          cds.push(cd);
+        }
+        const cdStart = globalOffset;
+        for (const cd of cds) { res.write(cd); globalOffset += cd.length; }
+        const eocd = Buffer.alloc(22);
+        eocd.writeUInt32LE(0x06054b50, 0); eocd.writeUInt16LE(0, 4); eocd.writeUInt16LE(0, 6);
+        eocd.writeUInt16LE(cds.length, 8); eocd.writeUInt16LE(cds.length, 10);
+        eocd.writeUInt32LE(globalOffset - cdStart, 12); eocd.writeUInt32LE(cdStart, 16);
+        eocd.writeUInt16LE(0, 20);
+        res.end(eocd);
+      });
+      return;
+    }
+
     if (p === "/api/files/zip") {
       const files = listLogFiles().filter((f) => f.size <= ZIP_MAX_FILE_BYTES);
       const date = new Date().toISOString().slice(0, 10);

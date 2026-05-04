@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
-import { Download, FolderArchive, FileSpreadsheet, FileJson, FileText, AlertCircle } from "lucide-react"
+import { useState, useCallback } from "react"
+import { Download, FolderArchive, FileSpreadsheet, FileJson, FileText, AlertCircle, Package } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -26,10 +27,30 @@ function FileIcon({ name }: { name: string }) {
   return <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
 }
 
-function FileRow({ file }: { file: LogFile }) {
+function FileRow({
+  file,
+  selected,
+  onToggle,
+}: {
+  file: LogFile
+  selected: boolean
+  onToggle: (name: string) => void
+}) {
   const tooLarge = file.size > ZIP_MAX_BYTES
   return (
-    <tr className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
+    <tr
+      className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
+      onClick={() => onToggle(file.name)}
+    >
+      <td className="py-3 px-4 w-10">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onToggle(file.name)}
+          onClick={(e) => e.stopPropagation()}
+          className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+        />
+      </td>
       <td className="py-3 px-4">
         <div className="flex items-center gap-2 min-w-0">
           <FileIcon name={file.name} />
@@ -51,6 +72,7 @@ function FileRow({ file }: { file: LogFile }) {
         <a
           href={`/api/files/download?name=${encodeURIComponent(file.name)}`}
           download={file.name}
+          onClick={(e) => e.stopPropagation()}
         >
           <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
             <Download className="h-3.5 w-3.5" />
@@ -68,9 +90,58 @@ function FilesPage() {
     refetchInterval: 30_000,
   })
 
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [downloading, setDownloading] = useState(false)
+
+  const toggleFile = useCallback((name: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }, [])
+
+  const allNames = data?.map((f) => f.name) ?? []
+  const allChecked = allNames.length > 0 && allNames.every((n) => selected.has(n))
+  const someChecked = allNames.some((n) => selected.has(n)) && !allChecked
+
+  const toggleAll = useCallback(() => {
+    if (allChecked || someChecked) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(allNames))
+    }
+  }, [allChecked, someChecked, allNames])
+
+  const downloadSelected = useCallback(async () => {
+    if (selected.size === 0) return
+    setDownloading(true)
+    try {
+      const res = await fetch("/api/files/zip-selected", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ names: Array.from(selected) }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `polymarket-logs-selected-${new Date().toISOString().slice(0, 10)}.zip`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } finally {
+      setDownloading(false)
+    }
+  }, [selected])
+
   const included = data?.filter((f) => f.size <= ZIP_MAX_BYTES) ?? []
   const excluded = data?.filter((f) => f.size > ZIP_MAX_BYTES) ?? []
   const totalSize = data?.reduce((s, f) => s + f.size, 0) ?? 0
+  const selectedSize = data?.filter((f) => selected.has(f.name)).reduce((s, f) => s + f.size, 0) ?? 0
 
   return (
     <div className="p-4 md:p-6 space-y-4">
@@ -84,8 +155,22 @@ function FilesPage() {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <ClearLogsButton />
+          {selected.size > 0 && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={downloadSelected}
+              disabled={downloading}
+            >
+              <Package className="h-4 w-4 mr-2" />
+              {downloading ? "Gerando ZIP…" : "Baixar selecionados"}
+              <span className="ml-1.5 text-xs opacity-70">
+                · {selected.size} arquivo{selected.size !== 1 ? "s" : ""} · {formatSize(selectedSize)}
+              </span>
+            </Button>
+          )}
           <a href="/api/files/zip" download={`polymarket-logs-${new Date().toISOString().slice(0, 10)}.zip`}>
             <Button variant="default" size="sm" disabled={included.length === 0}>
               <Download className="h-4 w-4 mr-2" />
@@ -122,6 +207,15 @@ function FilesPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border text-muted-foreground text-xs uppercase tracking-wide">
+                    <th className="py-3 px-4 w-10">
+                      <input
+                        type="checkbox"
+                        checked={allChecked}
+                        ref={(el) => { if (el) el.indeterminate = someChecked }}
+                        onChange={toggleAll}
+                        className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                      />
+                    </th>
                     <th className="text-left py-3 px-4 font-medium">Arquivo</th>
                     <th className="text-right py-3 px-4 font-medium">Tamanho</th>
                     <th className="text-right py-3 px-4 font-medium hidden sm:table-cell">Modificado</th>
@@ -130,7 +224,12 @@ function FilesPage() {
                 </thead>
                 <tbody>
                   {data.map((file) => (
-                    <FileRow key={file.name} file={file} />
+                    <FileRow
+                      key={file.name}
+                      file={file}
+                      selected={selected.has(file.name)}
+                      onToggle={toggleFile}
+                    />
                   ))}
                 </tbody>
               </table>
