@@ -29,7 +29,80 @@ O comando lê `logs/dryrun_15m_trades.csv` e `logs/dryrun_5m_trades.csv` e impri
 ---
 
 
-## Versão atual — v11
+## Versão atual — v12
+
+**Ref:** `logs/cloud/` (análise do zip `polymarketlogsselected20260504.zip`)
+**Data:** 2026-05-04
+**Ambiente:** cloud — nenhuma env var definida, todos os parâmetros são os **defaults do código**
+
+### Mudanças vs v11
+Introduzidas após análise dos 291 trades 15m / 592 trades 5m do cloud run v11 (2026-04-30 a 2026-05-04):
+
+1. **Bug fix: `blockedHoursUtc` nunca era aplicado no simulador** (`dryRun.js`). As funções `createDryRunSimulator15m` e `createDryRunSimulator5m` construíam um objeto `config` explícito linha a linha mas omitiam `blockedHoursUtc`, que então caía em `?? []` (array vazio = sem bloqueio). 34% das entradas 15m e 33% das 5m ocorreram em horas que deveriam estar bloqueadas — os dados de v11 são "sujos" por esse bug.
+
+2. **15m: `disableTimeDecay = true`** (novo param em `config.js`). 143 trades / 49% do total saíram via TIME_DECAY com −$139.86. Causa: ao subir `entryMinMarketPrice` para 0.50, todos os trades passaram a qualificar para o trigger TIME_DECAY (que exige entry ≥ $0.50). Mesmo padrão que 5m tinha em v10 (433 TD = −$159). Non-TD trades no período: 148, +$100.22, 73.6% WR. Configurável via `TRADE_DISABLE_TIME_DECAY`.
+
+3. **15m: revisão de `blockedHoursUtc`** (`[0,2,4,8,11,17,18,21]` → `[0,8,9,11,17,18,19,21,22]`). Liberados H02 (+$1.81) e H04 (+$2.32) — positivos no período. Adicionados H09 (−$6.75), H19 (−$7.36), H22 (−$4.27).
+
+4. **5m: revisão de `blockedHoursUtc`** (`[2,3,6,10,16,19,20,21]` → `[2,3,4,6,10,16,19,20]`). Liberado H21 (+$10.49 em 23 trades — melhor hora do período, erroneamente bloqueada). Adicionado H04 (−$8.43, pior hora não bloqueada).
+
+5. **Defaults das factory functions alinhados com defaults reais** (`dryRun.js`). Os fallbacks `?? X` em `createDryRunSimulator15m/5m` agora espelham os defaults de `config.js` / `config5m.js`, evitando divergência quando o simulador é chamado standalone.
+
+6. **`disableTimeDecay` propagado para `baseExitEvalArgs`** em `index.js` e `index5m.js`. O display de live trading não passava esse flag para `evaluateExit`, podendo mostrar TIME_DECAY incorretamente.
+
+### Parâmetros — 15m
+| Parâmetro | Valor | Env var |
+|---|---|---|
+| `tradeAmount` | $5 (base) | `POLYMARKET_TRADE_AMOUNT` |
+| `takeProfitPct` | 20% | `TRADE_TAKE_PROFIT_PCT` |
+| `stopLossPct` | 25% | `TRADE_STOP_LOSS_PCT` |
+| `signalFlipMinProb` | 0.58 | `TRADE_SIGNAL_FLIP_PROB` |
+| `stopLossMinProb` | 0.65 | `TRADE_SL_MIN_PROB` |
+| `stopLossMinDurationS` | 240s | `TRADE_SL_MIN_DURATION_S` |
+| `flipCooldownS` | 60s | `TRADE_FLIP_COOLDOWN_S` |
+| `flipConfirmTicks` | 2 | `TRADE_FLIP_CONFIRM_TICKS` |
+| `disableSignalFlip` | true | `TRADE_DISABLE_SIGNAL_FLIP` |
+| `disableStopLoss` | false | `TRADE_DISABLE_STOP_LOSS` |
+| `disableTimeDecay` | **true** ✱ | `TRADE_DISABLE_TIME_DECAY` |
+| `entryMinMarketPrice` | 0.50 | `TRADE_ENTRY_MIN_PRICE` |
+| `entryMaxMarketPrice` | 0.58 | `TRADE_ENTRY_MAX_PRICE` |
+| `btcVsPtbMinAbsUsd` | 5 | `TRADE_BTC_VS_PTB_MIN_USD` |
+| `blockedHoursUtc` | **[0,8,9,11,17,18,19,21,22]** ✱ | `TRADE_BLOCKED_HOURS_UTC` |
+| `blockedRegimes` | [CHOP,RANGE] | `TRADE_BLOCKED_REGIMES` |
+
+### Parâmetros — 5m
+| Parâmetro | Valor | Env var |
+|---|---|---|
+| `tradeAmount` | $5 (base) | `POLYMARKET_TRADE_AMOUNT` |
+| `takeProfitPct` | 20% | `TRADE_TAKE_PROFIT_PCT` |
+| `stopLossPct` | 25% | `TRADE_STOP_LOSS_PCT` |
+| `signalFlipMinProb` | 0.62 | `TRADE_SIGNAL_FLIP_PROB` |
+| `disableStopLoss` | true | `TRADE_DISABLE_STOP_LOSS_5M` |
+| `disableSignalFlip` | true | `TRADE_DISABLE_SIGNAL_FLIP_5M` |
+| `disableTimeDecay` | true | `TRADE_DISABLE_TIME_DECAY_5M` |
+| `entryMinMarketPrice` | 0.50 | `TRADE_ENTRY_MIN_PRICE_5M` |
+| `entryMaxMarketPrice` | 0.52 | `TRADE_ENTRY_MAX_PRICE_5M` |
+| `blockedHoursUtc` | **[2,3,4,6,10,16,19,20]** ✱ | `TRADE_BLOCKED_HOURS_UTC_5M` |
+
+✱ = mudanças desta versão.
+
+### Impacto esperado vs v11 (com dados v11 corretos)
+| Mudança | Bot | Efeito projetado |
+|---|---|---|
+| Bug fix blockedHoursUtc | ambos | +$19 (15m) / +$4 (5m) — trades ruins bloqueados |
+| disableTimeDecay | 15m | +$25 a +$66 (cenário realista a otimista) |
+| Blocked hours revisados 15m | 15m | +$18/5dias (H09,H19,H22 bloqueados) − impacto H02,H04 liberados |
+| H21 liberado 5m | 5m | +$10/5dias |
+| H04 bloqueado 5m | 5m | +$8/5dias |
+
+### Observações para próxima análise
+- **Dados v11 são sujos** pelo bug de blockedHoursUtc — os resultados −$39 (15m) e +$29 (5m) incluem trades que não deveriam ter acontecido. O 5m sendo positivo mesmo com trades ruins sugere que a estratégia base está funcionando.
+- **5m DOWN bias** estrutural (DOWN: 60.3% WR vs UP: 49.7% WR, 5 dias consecutivos). Monitorar nos próximos runs — se persistir por 2–3 semanas, avaliar bloquear UP no 5m em tendência de baixa.
+- Amostras por hora ainda pequenas (~20–35 trades) — calibração de blockedHours deve aguardar acúmulo de 48–72h limpos pós-fix antes de novo ajuste.
+
+---
+
+## Versão anterior — v11
 
 **Ref:** `logs/cloud/extracted/today/` (análise do zip `polymarket-logs-2026-04-29.zip`)  
 **Hash:** *(a ser preenchido após commit)*  
