@@ -12,6 +12,36 @@ npm run start:5m # run 5m assistant  (node src/index5m.js)
 
 No test runner or linter is configured. The project uses ES modules (`"type": "module"` in package.json).
 
+## Dashboard UI components (`dashboard/src/components/ui/`)
+
+The dashboard uses **shadcn/ui** (new-york style, Tailwind v4, React 19). All UI primitives live in `dashboard/src/components/ui/`.
+
+### Adding new components
+
+`npx shadcn@latest add <component>` **does not work** in this environment — the process has no outbound internet access and the CLI returns 403 when fetching from `ui.shadcn.com/r`.
+
+When a component is needed that isn't already in `dashboard/src/components/ui/`, write it manually following the exact same pattern as the existing files:
+
+- Import Radix primitives from `"radix-ui"` (not from individual `@radix-ui/react-*` packages directly), e.g. `import { Checkbox as CheckboxPrimitive } from "radix-ui"`
+- Use `cn()` from `@/lib/utils` for class merging
+- Apply shadcn new-york design tokens (`border-input`, `bg-primary`, `ring-ring/50`, `data-[state=*]:…`, etc.)
+- Export a named function component (no default exports)
+- Add `data-slot="<name>"` to the root element
+
+The shadcn source for any component can be found at `https://github.com/shadcn-ui/ui/tree/main/apps/www/registry/new-york-v4/ui` for reference.
+
+### Do not use bare HTML form elements in routes or feature components
+
+Always use the shadcn wrapper components instead of raw HTML:
+
+| Avoid | Use instead |
+|---|---|
+| `<input type="checkbox">` | `<Checkbox>` from `@/components/ui/checkbox` |
+| `<input type="text">` | `<Input>` from `@/components/ui/input` |
+| `<button>` | `<Button>` from `@/components/ui/button` |
+
+`input.tsx` itself wraps a native `<input>` — that is correct and intentional (it is the shadcn component). Using a native element *outside* of a `ui/` wrapper component is the anti-pattern to avoid.
+
 ## Architecture
 
 This is a single-process real-time console assistant for Polymarket BTC 15-minute prediction markets. It polls every 1 second and redraws a static terminal screen using ANSI escape codes + `readline`.
