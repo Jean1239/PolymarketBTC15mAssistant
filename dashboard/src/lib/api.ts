@@ -17,6 +17,8 @@ export interface Trade {
   btc_vs_ptb_at_entry: number
   market_up_at_entry: number
   market_down_at_entry: number
+  fee: number
+  pnl_net: number
 }
 
 export interface BotStats {
@@ -38,7 +40,11 @@ export interface BotStats {
   lastExit: string | null
   byReason: Record<string, { count: number; pnl: number }>
   bySide: Record<string, { count: number; wins: number; pnl: number }>
-  pnlCurve: { time: string; pnl: number }[]
+  pnlCurve: { time: string; pnl: number; pnlNet: number }[]
+  feeRate: number
+  totalFees: number
+  totalPnlNet: number
+  avgFee: number
 }
 
 export interface StatsResponse {
