@@ -55,7 +55,9 @@ function BotOverview({ stats, label }: { stats: BotStats; label: string }) {
     pnl: { label: "Cum. P&L (gross)", color: "hsl(142 76% 36%)" },
     pnlNet: { label: "Cum. P&L (net of fees)", color: "hsl(38 92% 50%)" },
   }
-  const feePct = (stats.feeRate * 100).toFixed(2)
+  // Peak effective taker fee rate (% of trade value) at p=0.50, per Polymarket
+  // formula fee = trade_value × feeRate × (p(1-p))^exponent.
+  const feePeakPct = (stats.feeRate * Math.pow(0.25, stats.feeExponent) * 100).toFixed(2)
   const exitChartConfig = Object.fromEntries(
     exitReasonData.map((d) => [d.reason, { label: d.reason, color: EXIT_COLORS[d.reason] ?? "hsl(240 5% 64%)" }])
   )
@@ -72,7 +74,7 @@ function BotOverview({ stats, label }: { stats: BotStats; label: string }) {
         <StatCard
           title="P&L Líquido (após fees)"
           value={`${stats.totalPnlNet >= 0 ? "+" : ""}$${stats.totalPnlNet.toFixed(2)}`}
-          sub={`fees: -$${stats.totalFees.toFixed(2)} @ ${feePct}%`}
+          sub={`fees: -$${stats.totalFees.toFixed(2)} (pico ${feePeakPct}% @ p=0.50)`}
           positive={stats.totalPnlNet >= 0}
         />
         <StatCard
@@ -95,7 +97,7 @@ function BotOverview({ stats, label }: { stats: BotStats; label: string }) {
         <StatCard
           title="Fees Estimadas"
           value={`$${stats.totalFees.toFixed(2)}`}
-          sub={`avg/trade $${stats.avgFee.toFixed(3)} @ ${feePct}%`}
+          sub={`avg/trade $${stats.avgFee.toFixed(3)} · curva taker p(1−p)`}
         />
       </div>
 

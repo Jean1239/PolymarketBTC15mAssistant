@@ -42,6 +42,7 @@ export interface BotStats {
   bySide: Record<string, { count: number; wins: number; pnl: number }>
   pnlCurve: { time: string; pnl: number; pnlNet: number }[]
   feeRate: number
+  feeExponent: number
   totalFees: number
   totalPnlNet: number
   avgFee: number
