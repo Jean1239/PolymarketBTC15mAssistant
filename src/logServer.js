@@ -10,18 +10,37 @@ const LOGS_DIR = path.join(ROOT, "logs");
 const DIST_DIR = path.join(ROOT, "dashboard", "dist");
 const PORT = process.env.LOG_SERVER_PORT ?? 3456;
 
-// Estimated Polymarket fee rate per side of a trade (entry + exit), expressed
-// as a decimal. Default 2% — approximates spread/slippage cost. Override with
-// POLYMARKET_FEE_RATE_PCT (e.g. "1.5" for 1.5%).
+// Polymarket taker fee model for crypto markets.
+// Source: https://docs.polymarket.com/trading/fees — fees apply only to taker
+// orders on crypto markets (BTC/ETH/SOL/XRP, all timeframes since 2026-03).
+// Formula:   fee_per_side = trade_value × feeRate × (p × (1-p))^exponent
+// Crypto category: exponent = 1; the feeRate (`r` in the CLOB market info)
+// peaks the effective rate at feeRate × 0.25 when p = 0.50 and decays toward
+// the extremes. Defaults below give ≈2.5% peak per side (matching the
+// "up to ~3%" range reported when 15m fees launched). Override via env vars.
+//
+// Settlement (SETTLED_WIN / SETTLED_LOSS) is an on-chain CTF redemption, not
+// a trade — no taker fee is charged on that leg.
 const FEE_RATE = (() => {
-  const raw = parseFloat(process.env.POLYMARKET_FEE_RATE_PCT ?? "2");
-  return Number.isFinite(raw) && raw >= 0 ? raw / 100 : 0.02;
+  const raw = parseFloat(process.env.POLYMARKET_FEE_RATE ?? "0.10");
+  return Number.isFinite(raw) && raw >= 0 ? raw : 0.10;
+})();
+const FEE_EXPONENT = (() => {
+  const raw = parseFloat(process.env.POLYMARKET_FEE_EXPONENT ?? "1");
+  return Number.isFinite(raw) && raw >= 0 ? raw : 1;
 })();
 
+function feePerSide(tradeValue, price) {
+  if (!Number.isFinite(tradeValue) || tradeValue <= 0) return 0;
+  if (!Number.isFinite(price) || price <= 0 || price >= 1) return 0;
+  return tradeValue * FEE_RATE * Math.pow(price * (1 - price), FEE_EXPONENT);
+}
+
 function feeForTrade(t) {
-  const invested = Number.isFinite(t.invested) ? t.invested : 0;
-  const exitValue = Number.isFinite(t.exit_value) ? t.exit_value : 0;
-  return FEE_RATE * (invested + exitValue);
+  const entryFee = feePerSide(t.invested, t.entry_price);
+  const exitIsSettlement = typeof t.exit_reason === "string" && t.exit_reason.startsWith("SETTLED");
+  const exitFee = exitIsSettlement ? 0 : feePerSide(t.exit_value, t.exit_price);
+  return entryFee + exitFee;
 }
 
 // ── ZIP builder (no external deps, STORE mode) ───────────────────────────────
@@ -236,7 +255,8 @@ function computeStats(trades) {
       maxWinStreak: 0, maxLossStreak: 0,
       firstEntry: null, lastExit: null,
       byReason: {}, bySide: {}, pnlCurve: [],
-      feeRate: FEE_RATE, totalFees: 0, totalPnlNet: 0, avgFee: 0,
+      feeRate: FEE_RATE, feeExponent: FEE_EXPONENT,
+      totalFees: 0, totalPnlNet: 0, avgFee: 0,
     };
   }
 
@@ -308,6 +328,7 @@ function computeStats(trades) {
     bySide,
     pnlCurve,
     feeRate: FEE_RATE,
+    feeExponent: FEE_EXPONENT,
     totalFees: parseFloat(totalFees.toFixed(4)),
     totalPnlNet: parseFloat(totalPnlNet.toFixed(4)),
     avgFee: parseFloat((totalFees / trades.length).toFixed(4)),
