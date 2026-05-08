@@ -4,7 +4,7 @@ import { TrendingUp, TrendingDown, Activity } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis, Bar, BarChart, Cell } from "recharts"
+import { Area, CartesianGrid, ComposedChart, XAxis, YAxis, Bar, BarChart, Cell, Line } from "recharts"
 import { api, type BotStats } from "@/lib/api"
 import { ClearLogsButton } from "@/components/clear-logs-button"
 
@@ -51,7 +51,11 @@ function BotOverview({ stats, label }: { stats: BotStats; label: string }) {
     .sort((a, b) => b[1].count - a[1].count)
     .map(([reason, d]) => ({ reason, count: d.count, pnl: d.pnl }))
 
-  const pnlChartConfig = { pnl: { label: "Cum. P&L", color: "hsl(142 76% 36%)" } }
+  const pnlChartConfig = {
+    pnl: { label: "Cum. P&L (gross)", color: "hsl(142 76% 36%)" },
+    pnlNet: { label: "Cum. P&L (net of fees)", color: "hsl(38 92% 50%)" },
+  }
+  const feePct = (stats.feeRate * 100).toFixed(2)
   const exitChartConfig = Object.fromEntries(
     exitReasonData.map((d) => [d.reason, { label: d.reason, color: EXIT_COLORS[d.reason] ?? "hsl(240 5% 64%)" }])
   )
@@ -60,10 +64,16 @@ function BotOverview({ stats, label }: { stats: BotStats; label: string }) {
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard
-          title="Total P&L"
+          title="Total P&L (Bruto)"
           value={`${stats.totalPnl >= 0 ? "+" : ""}$${stats.totalPnl.toFixed(2)}`}
           sub={`${stats.totalTrades} trades`}
           positive={stats.totalPnl >= 0}
+        />
+        <StatCard
+          title="P&L Líquido (após fees)"
+          value={`${stats.totalPnlNet >= 0 ? "+" : ""}$${stats.totalPnlNet.toFixed(2)}`}
+          sub={`fees: -$${stats.totalFees.toFixed(2)} @ ${feePct}%`}
+          positive={stats.totalPnlNet >= 0}
         />
         <StatCard
           title="Win Rate"
@@ -82,6 +92,11 @@ function BotOverview({ stats, label }: { stats: BotStats; label: string }) {
           value={`${Math.round(stats.avgDurationS)}s`}
           sub={`streak: ${stats.maxWinStreak}W / ${stats.maxLossStreak}L`}
         />
+        <StatCard
+          title="Fees Estimadas"
+          value={`$${stats.totalFees.toFixed(2)}`}
+          sub={`avg/trade $${stats.avgFee.toFixed(3)} @ ${feePct}%`}
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -91,7 +106,7 @@ function BotOverview({ stats, label }: { stats: BotStats; label: string }) {
           </CardHeader>
           <CardContent>
             <ChartContainer config={pnlChartConfig} className="h-52 w-full">
-              <AreaChart data={stats.pnlCurve}>
+              <ComposedChart data={stats.pnlCurve}>
                 <defs>
                   <linearGradient id={`grad-${label}`} x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="hsl(142 76% 36%)" stopOpacity={0.3} />
@@ -103,7 +118,8 @@ function BotOverview({ stats, label }: { stats: BotStats; label: string }) {
                 <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v) => `$${v.toFixed(1)}`} />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <Area type="monotone" dataKey="pnl" stroke="hsl(142 76% 36%)" fill={`url(#grad-${label})`} strokeWidth={2} dot={false} />
-              </AreaChart>
+                <Line type="monotone" dataKey="pnlNet" stroke="hsl(38 92% 50%)" strokeWidth={2} strokeDasharray="4 3" dot={false} />
+              </ComposedChart>
             </ChartContainer>
           </CardContent>
         </Card>

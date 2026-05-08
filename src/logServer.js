@@ -10,6 +10,20 @@ const LOGS_DIR = path.join(ROOT, "logs");
 const DIST_DIR = path.join(ROOT, "dashboard", "dist");
 const PORT = process.env.LOG_SERVER_PORT ?? 3456;
 
+// Estimated Polymarket fee rate per side of a trade (entry + exit), expressed
+// as a decimal. Default 2% — approximates spread/slippage cost. Override with
+// POLYMARKET_FEE_RATE_PCT (e.g. "1.5" for 1.5%).
+const FEE_RATE = (() => {
+  const raw = parseFloat(process.env.POLYMARKET_FEE_RATE_PCT ?? "2");
+  return Number.isFinite(raw) && raw >= 0 ? raw / 100 : 0.02;
+})();
+
+function feeForTrade(t) {
+  const invested = Number.isFinite(t.invested) ? t.invested : 0;
+  const exitValue = Number.isFinite(t.exit_value) ? t.exit_value : 0;
+  return FEE_RATE * (invested + exitValue);
+}
+
 // ── ZIP builder (no external deps, STORE mode) ───────────────────────────────
 
 const CRC32_TABLE = (() => {
@@ -130,22 +144,28 @@ function parseNum(v) {
 }
 
 function coerceTrades(rows) {
-  return rows.map((r) => ({
-    ...r,
-    entry_price: parseNum(r.entry_price),
-    exit_price: parseNum(r.exit_price),
-    shares: parseNum(r.shares),
-    invested: parseNum(r.invested),
-    exit_value: parseNum(r.exit_value),
-    pnl: parseNum(r.pnl),
-    roi_pct: parseNum(r.roi_pct),
-    duration_s: parseNum(r.duration_s),
-    ptb_at_entry: parseNum(r.ptb_at_entry),
-    btc_at_entry: parseNum(r.btc_at_entry),
-    btc_vs_ptb_at_entry: parseNum(r.btc_vs_ptb_at_entry),
-    market_up_at_entry: parseNum(r.market_up_at_entry),
-    market_down_at_entry: parseNum(r.market_down_at_entry),
-  }));
+  return rows.map((r) => {
+    const t = {
+      ...r,
+      entry_price: parseNum(r.entry_price),
+      exit_price: parseNum(r.exit_price),
+      shares: parseNum(r.shares),
+      invested: parseNum(r.invested),
+      exit_value: parseNum(r.exit_value),
+      pnl: parseNum(r.pnl),
+      roi_pct: parseNum(r.roi_pct),
+      duration_s: parseNum(r.duration_s),
+      ptb_at_entry: parseNum(r.ptb_at_entry),
+      btc_at_entry: parseNum(r.btc_at_entry),
+      btc_vs_ptb_at_entry: parseNum(r.btc_vs_ptb_at_entry),
+      market_up_at_entry: parseNum(r.market_up_at_entry),
+      market_down_at_entry: parseNum(r.market_down_at_entry),
+    };
+    const fee = feeForTrade(t);
+    t.fee = parseFloat(fee.toFixed(4));
+    t.pnl_net = t.pnl != null ? parseFloat((t.pnl - fee).toFixed(4)) : null;
+    return t;
+  });
 }
 
 function coerceSignals15m(rows) {
@@ -216,6 +236,7 @@ function computeStats(trades) {
       maxWinStreak: 0, maxLossStreak: 0,
       firstEntry: null, lastExit: null,
       byReason: {}, bySide: {}, pnlCurve: [],
+      feeRate: FEE_RATE, totalFees: 0, totalPnlNet: 0, avgFee: 0,
     };
   }
 
@@ -252,7 +273,19 @@ function computeStats(trades) {
 
   const rois = trades.map((t) => t.roi_pct);
   let cum = 0;
-  const pnlCurve = trades.map((t) => { cum += t.pnl; return { time: t.exit_time, pnl: parseFloat(cum.toFixed(4)) }; });
+  let cumNet = 0;
+  const pnlCurve = trades.map((t) => {
+    cum += t.pnl;
+    cumNet += (t.pnl_net ?? t.pnl);
+    return {
+      time: t.exit_time,
+      pnl: parseFloat(cum.toFixed(4)),
+      pnlNet: parseFloat(cumNet.toFixed(4)),
+    };
+  });
+
+  const totalFees = trades.reduce((s, t) => s + (t.fee ?? 0), 0);
+  const totalPnlNet = totalPnl - totalFees;
 
   return {
     totalTrades: trades.length,
@@ -274,6 +307,10 @@ function computeStats(trades) {
     byReason,
     bySide,
     pnlCurve,
+    feeRate: FEE_RATE,
+    totalFees: parseFloat(totalFees.toFixed(4)),
+    totalPnlNet: parseFloat(totalPnlNet.toFixed(4)),
+    avgFee: parseFloat((totalFees / trades.length).toFixed(4)),
   };
 }
 

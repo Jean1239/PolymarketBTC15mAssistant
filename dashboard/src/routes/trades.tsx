@@ -53,7 +53,7 @@ function TradesTable({ trades }: { trades: Trade[] }) {
   return (
     <div className="overflow-x-auto rounded-md border border-border">
       <div className="overflow-y-auto max-h-[calc(100svh-230px)]">
-        <Table className="min-w-[800px]">
+        <Table className="min-w-[920px]">
           <TableHeader>
             <TableRow>
               <TableHead>Entry</TableHead>
@@ -64,6 +64,8 @@ function TradesTable({ trades }: { trades: Trade[] }) {
               <TableHead className="text-right">Exit $</TableHead>
               <TableHead className="text-right">ROI</TableHead>
               <TableHead className="text-right">P&L</TableHead>
+              <TableHead className="text-right">Fee</TableHead>
+              <TableHead className="text-right">P&L Líq.</TableHead>
               <TableHead>Exit Reason</TableHead>
               <TableHead className="text-right">Duration</TableHead>
             </TableRow>
@@ -72,6 +74,8 @@ function TradesTable({ trades }: { trades: Trade[] }) {
             {sorted.map((t, i) => {
               const roi = t.roi_pct
               const pnl = t.pnl
+              const fee = t.fee ?? 0
+              const pnlNet = t.pnl_net ?? pnl - fee
               return (
                 <TableRow key={i}>
                   <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
@@ -92,6 +96,12 @@ function TradesTable({ trades }: { trades: Trade[] }) {
                   </TableCell>
                   <TableCell className={`text-right tabular-nums font-medium ${pnl >= 0 ? "text-green-500" : "text-red-500"}`}>
                     {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
+                    -${fee.toFixed(2)}
+                  </TableCell>
+                  <TableCell className={`text-right tabular-nums font-medium ${pnlNet >= 0 ? "text-green-500" : "text-red-500"}`}>
+                    {pnlNet >= 0 ? "+" : ""}${pnlNet.toFixed(2)}
                   </TableCell>
                   <TableCell>
                     <Badge variant={EXIT_VARIANT[t.exit_reason] ?? "outline"} className="text-xs whitespace-nowrap">
