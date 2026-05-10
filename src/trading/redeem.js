@@ -1,14 +1,17 @@
 /**
- * Redeems settled Polymarket conditional tokens back to USDC.
+ * Redeems settled Polymarket conditional tokens back to pUSD.
  *
  * After a binary market resolves, winning tokens are redeemable for $1 each and
  * losing tokens for $0. Neither is credited automatically — the CTF contract must
- * be called explicitly. Without this, won USDC stays locked in unredeemed tokens
+ * be called explicitly. Without this, won pUSD stays locked in unredeemed tokens
  * and the bot's CLOB balance never recovers.
  *
  * Redeeming both index sets ([1, 2]) is safe: the CTF contract pays out only for
  * tokens actually held; redeeming losing tokens costs a tiny amount of gas and
  * returns nothing.
+ *
+ * Post-CLOB-V2 (2026-04-28): the collateral token is Polymarket's pUSD instead
+ * of USDC.e. The ConditionalTokens contract address itself did not change.
  */
 
 import { ethers } from "ethers";
@@ -17,7 +20,7 @@ import { CONFIG } from "../config.js";
 
 const POLYGON_NETWORK = ethers.Network.from(137);
 const CTF_ADDRESS     = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"; // ConditionalTokens (Polygon)
-const USDC_E_ADDRESS  = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
+const PUSD_ADDRESS    = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB"; // Polymarket pUSD (V2 collateral)
 const ZERO_BYTES32    = "0x" + "00".repeat(32);
 
 const CTF_ABI = [
@@ -73,7 +76,7 @@ export async function redeemSettledPositions({ wallet, conditionId, marketSlug =
     const ctf         = new ethers.Contract(CTF_ADDRESS, CTF_ABI, connected);
 
     // Redeem both outcomes: indexSet 1 = outcome 0 (Down/No), indexSet 2 = outcome 1 (Up/Yes)
-    const tx = await ctf.redeemPositions(USDC_E_ADDRESS, ZERO_BYTES32, conditionId, [1, 2]);
+    const tx = await ctf.redeemPositions(PUSD_ADDRESS, ZERO_BYTES32, conditionId, [1, 2]);
     logRedeem(`Tx enviada: ${tx.hash} — aguardando confirmação...`);
 
     const receipt = await tx.wait();
