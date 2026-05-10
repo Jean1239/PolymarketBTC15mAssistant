@@ -108,7 +108,11 @@ Both main loops listen for keypresses when trading is enabled: **[B]** buy the r
 
 ### Dashboard server (`src/logServer.js`)
 
-Node.js HTTP server (no Express) serving the React dashboard and a JSON API over the log files. Started separately from the bots. API endpoints:
+Node.js HTTP server (no Express) serving the React dashboard and a JSON API over the log files. Started separately from the bots.
+
+**Auth (better-auth + Drizzle + Postgres):** every `/api/*` route except `/api/auth/*` and `/api/health` requires an authenticated session cookie. better-auth lives in `src/auth/` (`instance.js`, `schema.js`, `db.js`, `migrate.js`, `seedAdmin.js`). The Drizzle schema is in `src/auth/schema.js` and migrations in `drizzle/`. On boot the dashboard runs `runMigrations()` then `seedAdmin()` — the latter creates the admin user from `DASHBOARD_ADMIN_EMAIL`/`DASHBOARD_ADMIN_PASSWORD` (skipped if user exists, unless `DASHBOARD_ADMIN_RESET_PASSWORD=true`). Public sign-up is disabled (`disableSignUp: true`). The dashboard React app uses `better-auth/react` (`dashboard/src/lib/auth-client.ts`) and gates the layout in `dashboard/src/routes/__root.tsx` — unauthenticated users are redirected to `/login`. Required env vars on the dashboard container: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `AUTH_TRUSTED_ORIGINS`, `DASHBOARD_ADMIN_EMAIL`, `DASHBOARD_ADMIN_PASSWORD`.
+
+API endpoints:
 
 | Method | Path | Description |
 |---|---|---|
@@ -120,6 +124,8 @@ Node.js HTTP server (no Express) serving the React dashboard and a JSON API over
 | `GET` | `/api/files/download?name=<file>` | Download a single log file |
 | `GET` | `/api/files/zip` | Download all log files (≤50 MB each) as a ZIP |
 | `POST` | `/api/logs/clear` | Archive current CSVs to `logs/archive/<timestamp>/`, then truncate each to its header row. Returns `{ ok, cleared[], archive }`. Affects: `dryrun_15m.csv`, `dryrun_5m.csv`, `dryrun_15m_trades.csv`, `dryrun_5m_trades.csv`, `signals.csv`, `signals_5m.csv`. |
+| `GET` | `/api/health` | Public, unauthenticated. Returns `{ ok: true }`. Use as Coolify/Docker healthcheck URL. |
+| `*` | `/api/auth/*` | Owned by better-auth (sign-in, sign-out, session, etc.). Public. |
 
 ### Proxy (`src/net/proxy.js`)
 

@@ -3,6 +3,10 @@ import { createReadStream, readFileSync, writeFileSync, mkdirSync, copyFileSync,
 import { readdir } from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
+import { toNodeHandler, fromNodeHeaders } from "better-auth/node";
+import { getAuth } from "./auth/instance.js";
+import { runMigrations } from "./auth/migrate.js";
+import { seedAdmin } from "./auth/seedAdmin.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -384,13 +388,47 @@ function json(res, data) {
   res.end(body);
 }
 
-const server = http.createServer((req, res) => {
+const auth = getAuth();
+const authHandler = toNodeHandler(auth);
+
+const PUBLIC_API_PATHS = new Set(["/api/health"]);
+
+async function isAuthenticated(req) {
+  try {
+    const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
+    return Boolean(session?.user);
+  } catch {
+    return false;
+  }
+}
+
+const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
   const p = url.pathname;
 
   if (req.method === "OPTIONS") {
     res.writeHead(204, { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST" });
     res.end(); return;
+  }
+
+  // better-auth owns /api/auth/* (sign-in, sign-out, session, etc.)
+  if (p.startsWith("/api/auth")) {
+    return authHandler(req, res);
+  }
+
+  // Health check is public so Coolify/Docker can probe without a session.
+  if (p === "/api/health") {
+    return json(res, { ok: true });
+  }
+
+  // All other /api/* routes require an authenticated session.
+  if (p.startsWith("/api/")) {
+    const ok = await isAuthenticated(req);
+    if (!ok) {
+      res.writeHead(401, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+      res.end(JSON.stringify({ error: "unauthorized" }));
+      return;
+    }
   }
 
   try {
@@ -601,4 +639,29 @@ const server = http.createServer((req, res) => {
   }
 });
 
-server.listen(PORT, () => console.log(`Dashboard server on http://0.0.0.0:${PORT}`));
+async function bootstrap() {
+  if (process.env.SKIP_DB_MIGRATIONS !== "true") {
+    try {
+      await runMigrations();
+      console.log("DB migrations applied");
+    } catch (err) {
+      console.error("DB migrations failed:", err.message);
+      throw err;
+    }
+  }
+
+  try {
+    const result = await seedAdmin();
+    console.log("Admin seed:", result);
+  } catch (err) {
+    console.error("Admin seed failed:", err.message);
+    throw err;
+  }
+
+  server.listen(PORT, () => console.log(`Dashboard server on http://0.0.0.0:${PORT}`));
+}
+
+bootstrap().catch((err) => {
+  console.error("Bootstrap failed:", err);
+  process.exit(1);
+});

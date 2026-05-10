@@ -37,6 +37,27 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: polymarket-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-polyassistent}
+    volumes:
+      - polymarket_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-polyassistent}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
   dashboard:
     build:
       context: .
@@ -46,14 +67,27 @@ services:
     env_file:
       - path: .env
         required: false
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/polyassistent}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3456}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      AUTH_TRUSTED_ORIGINS: ${AUTH_TRUSTED_ORIGINS:-http://localhost:3456,http://localhost:5173}
+      DASHBOARD_ADMIN_EMAIL: ${DASHBOARD_ADMIN_EMAIL}
+      DASHBOARD_ADMIN_PASSWORD: ${DASHBOARD_ADMIN_PASSWORD}
+      DASHBOARD_ADMIN_NAME: ${DASHBOARD_ADMIN_NAME:-Admin}
+      DASHBOARD_ADMIN_RESET_PASSWORD: ${DASHBOARD_ADMIN_RESET_PASSWORD:-false}
     ports:
       - "3456:3456"
     volumes:
       - polymarket_logs:/app/logs
-    mem_limit: 128m
+    mem_limit: 256m
     depends_on:
-      - bot-15m
-      - bot-5m
+      postgres:
+        condition: service_healthy
+      bot-15m:
+        condition: service_started
+      bot-5m:
+        condition: service_started
     logging:
       driver: json-file
       options:
@@ -62,3 +96,4 @@ services:
 
 volumes:
   polymarket_logs:
+  polymarket_pg:
