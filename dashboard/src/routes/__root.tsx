@@ -1,11 +1,12 @@
-import { useState } from "react"
-import { createRootRoute, Link, Outlet } from "@tanstack/react-router"
+import { useEffect, useState } from "react"
+import { createRootRoute, Link, Outlet, useLocation, useNavigate } from "@tanstack/react-router"
 import { TanStackRouterDevtools } from "@tanstack/router-devtools"
-import { Activity, BarChart3, FolderArchive, Menu, Table2, Wifi } from "lucide-react"
+import { Activity, BarChart3, FolderArchive, LogOut, Menu, Table2, Wifi } from "lucide-react"
 import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import { Toaster } from "@/components/ui/sonner"
+import { authClient, useSession } from "@/lib/auth-client"
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -37,8 +38,62 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   )
 }
 
+function SignOutButton({ email, compact }: { email?: string; compact?: boolean }) {
+  const navigate = useNavigate()
+  const [signingOut, setSigningOut] = useState(false)
+  return (
+    <Button
+      variant="ghost"
+      size={compact ? "icon" : "sm"}
+      className={compact ? "h-8 w-8" : "justify-start gap-2"}
+      disabled={signingOut}
+      onClick={async () => {
+        setSigningOut(true)
+        await authClient.signOut()
+        navigate({ to: "/login" })
+      }}
+      aria-label="Sign out"
+      title={email ?? "Sign out"}
+    >
+      <LogOut className="h-4 w-4" />
+      {!compact && (signingOut ? "Signing out…" : "Sign out")}
+    </Button>
+  )
+}
+
 function RootLayout() {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const location = useLocation()
+  const navigate = useNavigate()
+  const { data: session, isPending } = useSession()
+
+  const isLoginRoute = location.pathname === "/login"
+
+  useEffect(() => {
+    if (isPending) return
+    if (!session && !isLoginRoute) {
+      navigate({ to: "/login", replace: true })
+    } else if (session && isLoginRoute) {
+      navigate({ to: "/", replace: true })
+    }
+  }, [session, isPending, isLoginRoute, navigate])
+
+  if (isLoginRoute) {
+    return (
+      <>
+        <Outlet />
+        <Toaster position="bottom-right" />
+      </>
+    )
+  }
+
+  if (isPending || !session) {
+    return (
+      <div className="dark min-h-screen flex items-center justify-center bg-background text-muted-foreground text-sm">
+        Loading…
+      </div>
+    )
+  }
 
   return (
     <div className="dark min-h-screen bg-background text-foreground flex flex-col md:flex-row">
@@ -54,7 +109,8 @@ function RootLayout() {
           <Menu className="h-5 w-5" />
         </Button>
         <Activity className="h-5 w-5 text-primary" />
-        <span className="font-semibold text-sm tracking-tight">Polymarket BTC</span>
+        <span className="font-semibold text-sm tracking-tight flex-1">Polymarket BTC</span>
+        <SignOutButton email={session.user.email} compact />
       </header>
 
       {/* Mobile nav drawer */}
@@ -80,6 +136,11 @@ function RootLayout() {
         </div>
         <Separator className="mb-2" />
         <NavLinks />
+        <div className="mt-auto flex flex-col gap-1 pt-4">
+          <Separator className="mb-2" />
+          <p className="px-3 text-xs text-muted-foreground truncate">{session.user.email}</p>
+          <SignOutButton email={session.user.email} />
+        </div>
       </aside>
 
       <main className="flex-1 overflow-auto min-w-0">

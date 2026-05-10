@@ -9,17 +9,25 @@
     "start:dashboard": "node src/logServer.js",
     "report": "node scripts/report.js",
     "dashboard:dev": "cd dashboard && npm run dev",
-    "dashboard:build": "cd dashboard && npm run build"
+    "dashboard:build": "cd dashboard && npm run build",
+    "db:migrate": "node src/auth/migrate.js",
+    "db:seed-admin": "node src/auth/seedAdmin.js",
+    "db:generate": "drizzle-kit generate",
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
     "@polymarket/clob-client": "^5.8.1",
+    "better-auth": "^1.6.10",
+    "drizzle-orm": "^0.45.2",
     "ethers": "^6.11.1",
     "https-proxy-agent": "^7.0.6",
+    "pg": "^8.20.0",
     "socks-proxy-agent": "^8.0.5",
     "undici": "^6.21.3",
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "drizzle-kit": "^0.31.10",
     "shadcn": "^4.5.0"
   }
 }

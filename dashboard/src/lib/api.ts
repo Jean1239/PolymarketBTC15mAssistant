@@ -134,9 +134,18 @@ export interface LogFile {
   modified: string
 }
 
+function maybeRedirectToLogin(status: number) {
+  if (status === 401 && typeof window !== "undefined" && window.location.pathname !== "/login") {
+    window.location.href = "/login"
+  }
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(path)
-  if (!res.ok) throw new Error(`${path} → ${res.status}`)
+  if (!res.ok) {
+    maybeRedirectToLogin(res.status)
+    throw new Error(`${path} → ${res.status}`)
+  }
   return res.json() as Promise<T>
 }
 
@@ -154,7 +163,10 @@ export const api = {
   files: () => get<LogFile[]>("/api/files"),
   clearLogs: () =>
     fetch("/api/logs/clear", { method: "POST" }).then((r) => {
-      if (!r.ok) throw new Error(`/api/logs/clear → ${r.status}`)
+      if (!r.ok) {
+        maybeRedirectToLogin(r.status)
+        throw new Error(`/api/logs/clear → ${r.status}`)
+      }
       return r.json() as Promise<ClearLogsResult>
     }),
 }
