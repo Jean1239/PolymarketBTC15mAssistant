@@ -5,7 +5,7 @@
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { getAuth } from "./instance.js";
-import { getDb, getPool, schema } from "./db.js";
+import { getDb, closeDb, schema } from "./db.js";
 
 export async function seedAdmin() {
   const email = process.env.DASHBOARD_ADMIN_EMAIL;
@@ -70,6 +70,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.error("Admin seed failed:", err);
     process.exit(1);
   } finally {
-    await getPool().end();
+    closeDb();
   }
 }

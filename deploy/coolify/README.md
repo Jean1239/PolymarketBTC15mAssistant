@@ -12,24 +12,21 @@ isolated.
 | `bot-15m`      | `./Dockerfile`     | `node --max-old-space-size=384 src/index.js`     | no      | `logs` (`/app/logs`) |
 | `bot-5m`       | `./Dockerfile`     | `node --max-old-space-size=384 src/index5m.js`   | no      | `logs` (`/app/logs`) |
 | `dashboard`    | `./Dockerfile.dashboard` | (image default `node src/logServer.js`)    | yes (port 3456) | `logs` (`/app/logs`) |
-| `postgres`     | Coolify "Database" service (Postgres 16) | n/a                | no      | managed by Coolify   |
 
 The `logs` volume MUST be the same physical storage mounted by all three app
 containers — that is how the dashboard reads the bots' CSVs. In Coolify this is
 done with a "Shared Persistent Storage" entry attached to each of the three
 app definitions, mounted at `/app/logs`.
 
-Postgres is only consumed by `dashboard` (better-auth sessions). The bots
-do not depend on it.
+Auth state (better-auth users + sessions) lives in a SQLite file inside the
+same `logs` volume (`/app/logs/auth.db`). No separate database service is
+needed. The bots do not read or write the auth DB.
 
 ## One-time setup (per environment)
 
-1. **Create the Postgres database.** In Coolify → *Databases* → New → Postgres 16.
-   Save the connection string; you will paste it into `dashboard`'s env as
-   `DATABASE_URL`.
-2. **Create the shared persistent volume.** In the project → *Storages* → New
+1. **Create the shared persistent volume.** In the project → *Storages* → New
    "Shared volume" called `polymarket-logs`. Mount path `/app/logs`.
-3. **Create three Applications**, all pointing at the same Git repo:
+2. **Create three Applications**, all pointing at the same Git repo:
     - `bot-15m`  → Dockerfile `Dockerfile`, start command `node --max-old-space-size=384 src/index.js`
     - `bot-5m`   → Dockerfile `Dockerfile`, start command `node --max-old-space-size=384 src/index5m.js`
     - `dashboard`→ Dockerfile `Dockerfile.dashboard`, leave start command empty (use image default)
@@ -39,12 +36,13 @@ do not depend on it.
     - Set the branch (see *Environments* below).
     - Paste the env vars listed below.
 
-4. **Expose the dashboard.** On the `dashboard` app, set the published port to
+3. **Expose the dashboard.** On the `dashboard` app, set the published port to
    `3456` and attach a domain. Bots stay internal — never expose them.
 
-5. **First boot.** The dashboard container runs Drizzle migrations and the
-   admin seed automatically before listening. Watch the logs to confirm
-   `DB migrations applied` and `Admin seed: { created: true, ... }` appear.
+4. **First boot.** The dashboard container runs Drizzle migrations against
+   `/app/logs/auth.db` and seeds the admin user automatically before listening.
+   Watch the logs to confirm `DB migrations applied` and
+   `Admin seed: { created: true, ... }` appear.
 
 ## Required env vars per application
 
@@ -67,7 +65,6 @@ CSV logging still work).
 ### `dashboard`
 
 ```
-DATABASE_URL=postgres://<user>:<password>@<host>:5432/<db>     # from Coolify Postgres
 BETTER_AUTH_SECRET=<openssl rand -base64 48>
 BETTER_AUTH_URL=https://dashboard.example.com                  # the public URL Coolify exposes
 AUTH_TRUSTED_ORIGINS=https://dashboard.example.com
@@ -76,22 +73,27 @@ DASHBOARD_ADMIN_PASSWORD=<minimum 12 chars>
 DASHBOARD_ADMIN_NAME=Admin
 ```
 
+`SQLITE_PATH` defaults to `/app/logs/auth.db` and rarely needs to be set
+explicitly. Keep it inside the shared volume so the database persists across
+redeploys.
+
 To rotate the admin password without manual SQL: set
 `DASHBOARD_ADMIN_RESET_PASSWORD=true`, change `DASHBOARD_ADMIN_PASSWORD`,
 redeploy the dashboard, then flip the reset flag back to `false`.
 
 ## Environments (prod vs staging)
 
-Use **two Coolify projects** so env vars, secrets, volumes and Postgres
-instances are physically isolated.
+Use **two Coolify projects** so env vars, secrets and volumes are physically
+isolated.
 
 | Project   | Git branch | DRY_RUN  | Trading key | Logs volume |
 |-----------|------------|----------|-------------|-------------|
 | `prod`    | `main`     | `false`  | real        | `polymarket-logs-prod` |
 | `staging` | `staging`  | `true`   | unset       | `polymarket-logs-staging` |
 
-Each project gets its own Postgres database. Never share an admin user across
-environments — staging gets its own `DASHBOARD_ADMIN_*` values.
+Each project gets its own `auth.db` (via its own logs volume). Never share an
+admin user across environments — staging gets its own `DASHBOARD_ADMIN_*`
+values.
 
 ### Staging branch flow
 
@@ -121,3 +123,5 @@ git push origin main     # Coolify prod project auto-deploys
   effects — use with care, especially in `prod`.
 - `GET /api/health` is the only unauthenticated endpoint. Use it as Coolify's
   health check URL for the dashboard.
+- To back up auth state, copy `/app/logs/auth.db` (and the `auth.db-wal` /
+  `auth.db-shm` sidecar files if present). SQLite WAL mode is enabled.
