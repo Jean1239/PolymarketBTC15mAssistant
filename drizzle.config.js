@@ -3,9 +3,9 @@ import { defineConfig } from "drizzle-kit";
 export default defineConfig({
   schema: "./src/auth/schema.js",
   out: "./drizzle",
-  dialect: "postgresql",
+  dialect: "sqlite",
   dbCredentials: {
-    url: process.env.DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/polyassistent",
+    url: process.env.SQLITE_PATH ?? "./logs/auth.db",
   },
   verbose: true,
   strict: true,

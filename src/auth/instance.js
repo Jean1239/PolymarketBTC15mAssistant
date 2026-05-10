@@ -27,7 +27,7 @@ export function getAuth() {
     basePath: "/api/auth",
     trustedOrigins: buildTrustedOrigins(),
     database: drizzleAdapter(getDb(), {
-      provider: "pg",
+      provider: "sqlite",
       schema: {
         user: schema.user,
         session: schema.session,

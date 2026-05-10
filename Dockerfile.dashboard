@@ -8,8 +8,10 @@ RUN npm run build
 FROM node:22-alpine AS server-deps
 WORKDIR /build
 COPY package*.json ./
-# Server needs better-auth + drizzle-orm + pg at runtime; keep devDeps out.
-RUN npm ci --omit=dev
+# better-sqlite3 is a native module; install build deps so npm ci can compile
+# from source if a prebuilt binary is unavailable for this platform/abi.
+RUN apk add --no-cache python3 make g++ \
+ && npm ci --omit=dev
 
 FROM node:22-alpine
 WORKDIR /app

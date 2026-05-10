@@ -18,10 +18,10 @@
   "dependencies": {
     "@polymarket/clob-client": "^5.8.1",
     "better-auth": "^1.6.10",
+    "better-sqlite3": "^12.9.0",
     "drizzle-orm": "^0.45.2",
     "ethers": "^6.11.1",
     "https-proxy-agent": "^7.0.6",
-    "pg": "^8.20.0",
     "socks-proxy-agent": "^8.0.5",
     "undici": "^6.21.3",
     "ws": "^8.18.0"
