@@ -1,4 +1,4 @@
-import { Side, OrderType } from "@polymarket/clob-client";
+import { Side, OrderType } from "@polymarket/clob-client-v2";
 import fs from "node:fs";
 
 function logOrder(action, data) {

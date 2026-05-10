@@ -1,4 +1,4 @@
-import { ClobClient, SignatureType } from "@polymarket/clob-client";
+import { ClobClient, SignatureTypeV2 } from "@polymarket/clob-client-v2";
 import { Wallet, ethers } from "ethers";
 import fs from "node:fs";
 
@@ -28,27 +28,28 @@ export async function initTradingClient(config) {
   }
 
   const _wallet = new Wallet(privateKey);
-  // clob-client v5 detects ethers v5 signers via _signTypedData (renamed to
-  // signTypedData in ethers v6). Expose both so the library uses the right path.
+  // clob-client-v2 accepts either a viem WalletClient or an ethers-v5-style
+  // signer with `_signTypedData` (renamed to `signTypedData` in ethers v6).
+  // Expose the v5 method name as a shim around the v6 implementation.
   const signer = Object.assign(_wallet, {
     _signTypedData: (domain, types, value) => _wallet.signTypedData(domain, types, value),
     getAddress: () => Promise.resolve(_wallet.address),
   });
   let sigType = signatureType === 1
-    ? SignatureType.POLY_PROXY
+    ? SignatureTypeV2.POLY_PROXY
     : signatureType === 2
-      ? SignatureType.POLY_GNOSIS_SAFE
-      : SignatureType.EOA;
+      ? SignatureTypeV2.POLY_GNOSIS_SAFE
+      : SignatureTypeV2.EOA;
 
   // For EOA, funder should be undefined (not the signer address) so the library
   // uses signer address as maker directly.
-  const funderAddr = sigType === SignatureType.EOA
+  const funderAddr = sigType === SignatureTypeV2.EOA
     ? undefined
     : (funder || undefined);
 
   // Auto-detect: se funder é um contrato GnosisSafe mas o tipo está como POLY_PROXY,
   // corrige para POLY_GNOSIS_SAFE automaticamente.
-  if (sigType === SignatureType.POLY_PROXY && funderAddr) {
+  if (sigType === SignatureTypeV2.POLY_PROXY && funderAddr) {
     try {
       const provider = new ethers.JsonRpcProvider(
         "https://polygon-bor-rpc.publicnode.com",
@@ -64,7 +65,7 @@ export async function initTradingClient(config) {
         try {
           const isOwner = await gsSafe.isOwner(_wallet.address);
           if (isOwner) {
-            sigType = SignatureType.POLY_GNOSIS_SAFE;
+            sigType = SignatureTypeV2.POLY_GNOSIS_SAFE;
             logTrading(`Auto-detectado: funder é GnosisSafe, usando POLY_GNOSIS_SAFE. Defina POLYMARKET_SIGNATURE_TYPE=2 para evitar esta detecção.`);
           }
         } catch { /* não é GnosisSafe */ }
@@ -73,32 +74,31 @@ export async function initTradingClient(config) {
     } catch { /* ignora erro de detecção */ }
   }
 
-  const sigTypeName = sigType === SignatureType.POLY_PROXY ? "POLY_PROXY"
-    : sigType === SignatureType.POLY_GNOSIS_SAFE ? "GNOSIS_SAFE" : "EOA";
+  const sigTypeName = sigType === SignatureTypeV2.POLY_PROXY ? "POLY_PROXY"
+    : sigType === SignatureTypeV2.POLY_GNOSIS_SAFE ? "GNOSIS_SAFE" : "EOA";
   logTrading(`EOA=${_wallet.address} funder=${funderAddr ?? "(none)"} sigType=${sigTypeName}(${sigType})`);
 
-  const clientL1 = new ClobClient(
-    config.clobBaseUrl,
-    137,
+  const clientL1 = new ClobClient({
+    host: config.clobBaseUrl,
+    chain: 137,
     signer,
-    undefined,
-    sigType,
-    funderAddr
-  );
+    signatureType: sigType,
+    funderAddress: funderAddr,
+  });
 
   const creds = await clientL1.createOrDeriveApiKey();
   logTrading(`API key derived: ${creds.key ? "OK" : "MISSING"}`);
 
-  const client = new ClobClient(
-    config.clobBaseUrl,
-    137,
+  const client = new ClobClient({
+    host: config.clobBaseUrl,
+    chain: 137,
     signer,
     creds,
-    sigType,
-    funderAddr
-  );
+    signatureType: sigType,
+    funderAddress: funderAddr,
+  });
 
-  // balanceAddress: onde está o USDC — o funder (proxy) ou o EOA
+  // balanceAddress: onde está o pUSD — o funder (proxy) ou o EOA
   const balanceAddress = funderAddr ?? _wallet.address;
   // Spread all trading config so downstream consumers (executor, evaluators) can
   // read entryMinMarketPrice, highConvictionMultiplier, timeDecay*, etc. directly

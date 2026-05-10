@@ -24,7 +24,7 @@ import {
   safeFileSlug, setStatusMessage
 } from "./display.js";
 import { initTradingClient } from "./trading/client.js";
-import { fetchUsdcBalance, evaluateExit, resetIfMarketChanged, getPosition } from "./trading/position.js";
+import { fetchCollateralBalance, evaluateExit, resetIfMarketChanged, getPosition } from "./trading/position.js";
 import { setupKeyboard } from "./trading/keyboard.js";
 import { processActionQueue } from "./trading/executor.js";
 import { createPriceLatch } from "./trading/priceLatch.js";
@@ -197,7 +197,7 @@ async function main() {
 
       if (trading.tradingEnabled && Date.now() - usdcLastFetchMs > 30_000) {
         usdcLastFetchMs = Date.now();
-        fetchUsdcBalance(trading.balanceAddress)
+        fetchCollateralBalance(trading.balanceAddress)
           .then((bal) => { usdcBalance = bal; usdcBalanceError = null; })
           .catch((err) => { usdcBalanceError = err?.message ? err.message.slice(0, 40) : "erro"; });
       }

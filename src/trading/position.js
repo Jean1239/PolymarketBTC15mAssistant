@@ -1,8 +1,10 @@
-import { AssetType } from "@polymarket/clob-client";
+import { AssetType } from "@polymarket/clob-client-v2";
 import { ethers } from "ethers";
 import { CONFIG } from "../config.js";
 
-const USDC_E = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"; // USDC.e Polygon
+// pUSD: Polymarket's V2 collateral token on Polygon (replaced USDC.e in the
+// 2026-04-28 CLOB V2 migration). ERC-20, 6 decimals, 1:1 backed by USDC.
+const PUSD = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB";
 const ERC20_ABI = ["function balanceOf(address) view returns (uint256)"];
 const POLYGON_NETWORK = ethers.Network.from(137);
 
@@ -179,9 +181,9 @@ export async function fetchPositionBalance(client, tokenId) {
   }
 }
 
-export async function fetchUsdcBalance(funderAddress) {
+export async function fetchCollateralBalance(funderAddress) {
   const provider = await getPolygonProvider();
-  const usdc = new ethers.Contract(USDC_E, ERC20_ABI, provider);
-  const raw = await usdc.balanceOf(funderAddress);
-  return Number(raw) / 1e6; // USDC.e tem 6 decimais
+  const pusd = new ethers.Contract(PUSD, ERC20_ABI, provider);
+  const raw = await pusd.balanceOf(funderAddress);
+  return Number(raw) / 1e6; // pUSD tem 6 decimais (mesmo que USDC.e)
 }
