@@ -8,7 +8,8 @@ services:
     env_file:
       - path: .env
         required: false
-    command: node --max-old-space-size=384 src/index.js
+    environment:
+      BOT_MODE: 15m
     mem_limit: 512m
     volumes:
       - polymarket_logs:/app/logs
@@ -27,7 +28,8 @@ services:
     env_file:
       - path: .env
         required: false
-    command: node --max-old-space-size=384 src/index5m.js
+    environment:
+      BOT_MODE: 5m
     mem_limit: 512m
     volumes:
       - polymarket_logs:/app/logs

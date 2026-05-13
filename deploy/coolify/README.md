@@ -7,11 +7,17 @@ isolated.
 
 ## Topology
 
-| Coolify app    | Source build       | Start command                                    | Public  | Persistent volume |
-|----------------|--------------------|--------------------------------------------------|---------|-------------------|
-| `bot-15m`      | `./Dockerfile`     | `node --max-old-space-size=384 src/index.js`     | no      | `logs` (`/app/logs`) |
-| `bot-5m`       | `./Dockerfile`     | `node --max-old-space-size=384 src/index5m.js`   | no      | `logs` (`/app/logs`) |
-| `dashboard`    | `./Dockerfile.dashboard` | (image default `node src/logServer.js`)    | yes (port 3456) | `logs` (`/app/logs`) |
+| Coolify app    | Source build             | Selector (env)   | Public          | Persistent volume    |
+|----------------|--------------------------|------------------|-----------------|----------------------|
+| `bot-15m`      | `./Dockerfile`           | `BOT_MODE=15m`   | no              | `logs` (`/app/logs`) |
+| `bot-5m`       | `./Dockerfile`           | `BOT_MODE=5m`    | no              | `logs` (`/app/logs`) |
+| `dashboard`    | `./Dockerfile.dashboard` | n/a              | yes (port 3456) | `logs` (`/app/logs`) |
+
+Both bots share the same `Dockerfile`. The entrypoint reads the `BOT_MODE`
+env var to decide which script to run (`src/index.js` for 15m,
+`src/index5m.js` for 5m). This sidesteps Coolify's lack of a per-app start
+command override for Dockerfile build packs — the start command lives in the
+image, the env var selects the bot.
 
 The `logs` volume MUST be the same physical storage mounted by all three app
 containers — that is how the dashboard reads the bots' CSVs. In Coolify this is
@@ -26,15 +32,20 @@ needed. The bots do not read or write the auth DB.
 
 1. **Create the shared persistent volume.** In the project → *Storages* → New
    "Shared volume" called `polymarket-logs`. Mount path `/app/logs`.
-2. **Create three Applications**, all pointing at the same Git repo:
-    - `bot-15m`  → Dockerfile `Dockerfile`, start command `node --max-old-space-size=384 src/index.js`
-    - `bot-5m`   → Dockerfile `Dockerfile`, start command `node --max-old-space-size=384 src/index5m.js`
-    - `dashboard`→ Dockerfile `Dockerfile.dashboard`, leave start command empty (use image default)
+2. **Create the Applications**, all pointing at the same Git repo:
+    - `bot-15m`  → Dockerfile `Dockerfile`, env `BOT_MODE=15m`
+    - `bot-5m`   → Dockerfile `Dockerfile`, env `BOT_MODE=5m`
+    - `dashboard`→ Dockerfile `Dockerfile.dashboard`
 
    In each application:
     - Attach the `polymarket-logs` shared volume at `/app/logs`.
     - Set the branch (see *Environments* below).
     - Paste the env vars listed below.
+
+   Coolify's Application + Dockerfile build pack has **no Start Command field**;
+   `Custom Docker Options` only accepts `docker run` flags. The bot script is
+   chosen entirely by the `BOT_MODE` env var. To run a different bot, change
+   the env var and redeploy — no Dockerfile edit needed.
 
 3. **Expose the dashboard.** On the `dashboard` app, set the published port to
    `3456` and attach a domain. Bots stay internal — never expose them.
