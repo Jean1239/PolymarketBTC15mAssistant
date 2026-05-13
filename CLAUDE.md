@@ -143,11 +143,11 @@ Called once at startup via `applyGlobalProxyFromEnv()`. Reads `HTTPS_PROXY`/`HTT
 | `POLYMARKET_5M_SERIES_ID` | (falls back to 15m series) | Series ID for 5m markets |
 | `POLYMARKET_5M_SERIES_SLUG` | `btc-up-or-down-5m` | Series slug for 5m markets |
 | `HTTPS_PROXY` / `ALL_PROXY` | — | Proxy for all outbound connections |
-| `POLYMARKET_PRIVATE_KEY` | — | Polygon wallet private key (enables trading) |
+| `POLYMARKET_LIVE_TRADING` | `false` | **Sole gate** for real-money trading. `true` + a valid `POLYMARKET_PRIVATE_KEY` = real orders. Anything else = paper/simulated. Replaces the prior `DRY_RUN` flag (removed). |
+| `POLYMARKET_PRIVATE_KEY` | — | Polygon wallet private key (required for real trading, ignored otherwise) |
 | `POLYMARKET_FUNDER` | (derived from key) | Polymarket profile address (proxy/GnosisSafe wallet) |
 | `POLYMARKET_SIGNATURE_TYPE` | `0` | `0`=EOA, `1`=POLY_PROXY (auto-detects GnosisSafe), `2`=GNOSIS_SAFE |
 | `POLYMARKET_TRADE_AMOUNT` | `5` | pUSD amount per trade |
-| `DRY_RUN` | `false` | Set to `true` to run in paper-trading-only mode (no real orders, no redemption, even if private key is set) |
 | `TRADE_TAKE_PROFIT_PCT` | `20` | ROI % to recommend take-profit (requires model reversal) |
 | `TRADE_STOP_LOSS_PCT` | `25` | ROI % loss to recommend stop-loss (requires model reversal) |
 | `TRADE_SIGNAL_FLIP_PROB` | `0.58` (15m) / `0.62` (5m) | Min opposite-side probability to consider model reversed |

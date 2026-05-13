@@ -63,15 +63,17 @@ Both bots accept the full set in `.env.example`. The minimum to enable real
 trading:
 
 ```
+POLYMARKET_LIVE_TRADING=true        # sole gate; default false = paper
 POLYMARKET_PRIVATE_KEY=0x...
 POLYMARKET_FUNDER=0x...
 POLYMARKET_SIGNATURE_TYPE=2
 POLYMARKET_TRADE_AMOUNT=5
-DRY_RUN=false
 ```
 
-To run paper-trading-only on either bot, set `DRY_RUN=true` (the simulator and
-CSV logging still work).
+To keep a bot in paper-trading-only mode, leave `POLYMARKET_LIVE_TRADING`
+unset (or set it to `false`) — the simulator and CSV logging still work even
+if `POLYMARKET_PRIVATE_KEY` is configured. There is no separate `DRY_RUN`
+switch any more.
 
 ### `dashboard`
 
@@ -97,10 +99,10 @@ redeploy the dashboard, then flip the reset flag back to `false`.
 Use **two Coolify projects** so env vars, secrets and volumes are physically
 isolated.
 
-| Project   | Git branch | DRY_RUN  | Trading key | Logs volume |
-|-----------|------------|----------|-------------|-------------|
-| `prod`    | `main`     | `false`  | real        | `polymarket-logs-prod` |
-| `staging` | `staging`  | `true`   | unset       | `polymarket-logs-staging` |
+| Project   | Git branch | `POLYMARKET_LIVE_TRADING` | Trading key | Logs volume |
+|-----------|------------|---------------------------|-------------|-------------|
+| `prod`    | `main`     | `true`                    | real        | `polymarket-logs-prod` |
+| `staging` | `staging`  | `false` (or unset)        | unset       | `polymarket-logs-staging` |
 
 Each project gets its own `auth.db` (via its own logs volume). Never share an
 admin user across environments — staging gets its own `DASHBOARD_ADMIN_*`

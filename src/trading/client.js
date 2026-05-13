@@ -15,14 +15,11 @@ function logTrading(msg) {
 export async function initTradingClient(config) {
   if (_cached) return _cached;
 
-  const { privateKey, funder, signatureType, tradeAmount } = config.trading;
+  const { privateKey, funder, signatureType, tradeAmount, liveTradingEnabled } = config.trading;
 
-  if (!privateKey) {
-    _cached = { ...config.trading, client: null, tradingEnabled: false, tradeAmount: 0, wallet: null };
-    return _cached;
-  }
-
-  if (config.trading.dryRunOnly) {
+  // Single gate: real orders require both a private key AND the explicit
+  // POLYMARKET_LIVE_TRADING=true flag. Anything else stays paper-only.
+  if (!privateKey || !liveTradingEnabled) {
     _cached = { ...config.trading, client: null, tradingEnabled: false, tradeAmount: 0, wallet: null };
     return _cached;
   }

@@ -90,9 +90,9 @@ export const CONFIG = {
     blockedHoursUtc: process.env.TRADE_BLOCKED_HOURS_UTC
       ? process.env.TRADE_BLOCKED_HOURS_UTC.split(",").map(Number)
       : [0, 8, 9, 11, 17, 18, 19, 21, 22],
-    // When true: paper-trading only — no real orders even if private key is set
-    dryRunOnly: (process.env.DRY_RUN || "").toLowerCase() === "true",
-    // When true: enables real order execution. Default false = simulated/paper mode.
+    // Sole gate for real-money trading. Default false = paper/simulated mode.
+    // Real orders fire iff POLYMARKET_LIVE_TRADING=true AND POLYMARKET_PRIVATE_KEY
+    // is set. Replaces the previous (DRY_RUN, POLYMARKET_LIVE_TRADING) pair.
     liveTradingEnabled: (process.env.POLYMARKET_LIVE_TRADING || "").toLowerCase() === "true",
   },
 
