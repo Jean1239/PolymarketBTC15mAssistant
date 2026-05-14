@@ -29,7 +29,7 @@ import { executeRealBuy, executeRealSell } from "./trading/executor.js";
 import { createPriceLatch } from "./trading/priceLatch.js";
 import { createTradeTracker } from "./trading/tracker.js";
 import { createDryRunSimulator15m } from "./dryRun.js";
-import { redeemSettledPositions } from "./trading/redeem.js";
+import { createRedemptionWorker } from "./trading/redeem.js";
 import { createRealTradeLogger } from "./trading/realTradeLog.js";
 import { notifyStart, notifyDailySummary } from "./notify.js";
 
@@ -82,6 +82,7 @@ async function main() {
   process.on("exit", () => dryRun.flushNow());
 
   const realTradeLog = createRealTradeLogger("./logs/real_15m_trades.csv");
+  const redemptionWorker = createRedemptionWorker();
 
   // Late-start guard: skip entering positions on markets the bot didn't see from open
   const BOT_START_MS = Date.now();
@@ -95,6 +96,8 @@ async function main() {
   let flipConfirmCount = 0;
   let prevMarketSlug       = "";
   let prevConditionId      = null;
+  let prevUpTokenId        = null;
+  let prevDownTokenId      = null;
   let lastDaySummaryEt     = new Date().toLocaleDateString("sv", { timeZone: "America/New_York" });
 
   while (true) {
@@ -177,13 +180,27 @@ async function main() {
       // Bot must have been running within LATE_START_GRACE_MS of market open to enter
       const sawMarketStart  = marketStartMsNow === null || BOT_START_MS <= marketStartMsNow + LATE_START_GRACE_MS;
 
-      // On market change: redeem any settled tokens from the previous market
+      // On market change: enqueue redemption (worker waits for oracle, retries
+      // with backoff, and skips silently when the wallet holds no tokens).
       if (marketSlugNow && marketSlugNow !== prevMarketSlug && prevConditionId && trading.tradingEnabled) {
-        redeemSettledPositions({ wallet: trading.wallet, conditionId: prevConditionId, marketSlug: prevMarketSlug })
-          .catch(() => {}); // fire-and-forget; errors are logged inside redeemSettledPositions
+        redemptionWorker.enqueue({
+          conditionId: prevConditionId,
+          slug: prevMarketSlug,
+          holderAddress: trading.balanceAddress,
+          upTokenId: prevUpTokenId,
+          downTokenId: prevDownTokenId,
+        });
       }
       if (conditionIdNow) prevConditionId = conditionIdNow;
+      if (poly.ok && poly.tokens) {
+        prevUpTokenId = poly.tokens.upTokenId ?? prevUpTokenId;
+        prevDownTokenId = poly.tokens.downTokenId ?? prevDownTokenId;
+      }
       prevMarketSlug = marketSlugNow || prevMarketSlug;
+
+      if (trading.tradingEnabled) {
+        redemptionWorker.processPending({ wallet: trading.wallet }).catch(() => {});
+      }
 
       resetIfMarketChanged(marketSlugNow);
 
