@@ -14,6 +14,17 @@ const LOGS_DIR = path.join(ROOT, "logs");
 const DIST_DIR = path.join(ROOT, "dashboard", "dist");
 const PORT = process.env.LOG_SERVER_PORT ?? 3456;
 
+// Selects which trade journal the /api/trades/* and /api/stats endpoints read.
+// "sim"  (default) → dryrun_{15m,5m}_trades.csv  (paper-trading simulator)
+// "real"           → real_{15m,5m}_trades.csv    (executed live orders)
+// The per-tick /api/live endpoint always reads the dryrun CSVs because they
+// are the only tick-by-tick source the bots emit.
+const TRADE_SOURCE = (process.env.DASHBOARD_TRADE_SOURCE ?? "sim").toLowerCase() === "real" ? "real" : "sim";
+const TRADES_FILE = {
+  "15m": TRADE_SOURCE === "real" ? "real_15m_trades.csv" : "dryrun_15m_trades.csv",
+  "5m":  TRADE_SOURCE === "real" ? "real_5m_trades.csv"  : "dryrun_5m_trades.csv",
+};
+
 // Polymarket taker fee model for crypto markets.
 // Source: https://docs.polymarket.com/trading/fees — fees apply only to taker
 // orders on crypto markets (BTC/ETH/SOL/XRP, all timeframes since 2026-03).
@@ -433,19 +444,19 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (p === "/api/trades/15m") {
-      const rows = coerceTrades(parseCsv(path.join(LOGS_DIR, "dryrun_15m_trades.csv")));
+      const rows = coerceTrades(parseCsv(path.join(LOGS_DIR, TRADES_FILE["15m"])));
       return json(res, rows);
     }
 
     if (p === "/api/trades/5m") {
-      const rows = coerceTrades(parseCsv(path.join(LOGS_DIR, "dryrun_5m_trades.csv")));
+      const rows = coerceTrades(parseCsv(path.join(LOGS_DIR, TRADES_FILE["5m"])));
       return json(res, rows);
     }
 
     if (p === "/api/stats") {
-      const t15 = coerceTrades(parseCsv(path.join(LOGS_DIR, "dryrun_15m_trades.csv")));
-      const t5 = coerceTrades(parseCsv(path.join(LOGS_DIR, "dryrun_5m_trades.csv")));
-      return json(res, { "15m": computeStats(t15), "5m": computeStats(t5) });
+      const t15 = coerceTrades(parseCsv(path.join(LOGS_DIR, TRADES_FILE["15m"])));
+      const t5 = coerceTrades(parseCsv(path.join(LOGS_DIR, TRADES_FILE["5m"])));
+      return json(res, { "15m": computeStats(t15), "5m": computeStats(t5), source: TRADE_SOURCE });
     }
 
     if (p === "/api/live") {
@@ -604,6 +615,8 @@ const server = http.createServer(async (req, res) => {
         "dryrun_5m.csv",
         "dryrun_15m_trades.csv",
         "dryrun_5m_trades.csv",
+        "real_15m_trades.csv",
+        "real_5m_trades.csv",
         "signals.csv",
         "signals_5m.csv",
       ];

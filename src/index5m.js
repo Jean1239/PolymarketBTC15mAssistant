@@ -26,12 +26,12 @@ import {
 } from "./display.js";
 import { initTradingClient } from "./trading/client.js";
 import { fetchCollateralBalance, evaluateExit, resetIfMarketChanged, getPosition } from "./trading/position.js";
-import { setupKeyboard } from "./trading/keyboard.js";
-import { processActionQueue } from "./trading/executor.js";
+import { executeRealBuy, executeRealSell } from "./trading/executor.js";
 import { createPriceLatch } from "./trading/priceLatch.js";
 import { createTradeTracker } from "./trading/tracker.js";
 import { createDryRunSimulator5m } from "./dryRun.js";
 import { redeemSettledPositions } from "./trading/redeem.js";
+import { createRealTradeLogger } from "./trading/realTradeLog.js";
 import { notifyStart, notifyDailySummary } from "./notify.js";
 
 applyGlobalProxyFromEnv();
@@ -76,7 +76,6 @@ async function main() {
   if (!liveTrading) trading.tradingEnabled = false;
 
   const resolveMarket = createMarketResolver(CONFIG.polymarket, CONFIG.pollIntervalMs);
-  const keyboard      = setupKeyboard({ tradingEnabled: trading.tradingEnabled });
   const priceLatch    = createPriceLatch();
   const tracker       = createTradeTracker();
 
@@ -85,6 +84,8 @@ async function main() {
 
   const dryRun = createDryRunSimulator5m("./logs/dryrun_5m.csv", CONFIG.trading);
   process.on("exit", () => dryRun.flushNow());
+
+  const realTradeLog = createRealTradeLogger("./logs/real_5m_trades.csv");
 
   // Late-start guard: skip entering positions on markets the bot didn't see from open
   const BOT_START_MS = Date.now();
@@ -211,8 +212,6 @@ async function main() {
 
       const priceToBeat = priceLatch.update({ marketSlug, currentPrice, marketStartMs: marketStartMsNow, market: poly.market ?? null });
 
-      await processActionQueue(keyboard.actionQueue, { trading, poly, rec, timeAware, marketSlugNow, btcPrice: currentPrice, priceToBeat, botLabel: "5m", sawMarketStart });
-
       if (trading.tradingEnabled && Date.now() - usdcLastFetchMs > 30_000) {
         usdcLastFetchMs = Date.now();
         fetchCollateralBalance(trading.balanceAddress)
@@ -228,6 +227,21 @@ async function main() {
           `${side}:${won ? "WIN" : "LOSS"}`, "", "", "", "", "",
           `${won ? "WIN" : "LOSS"}:${side}`, won ? "WIN" : "LOSS", pnl.toFixed(4),
         ]);
+
+        // If we hold a real position that settled with this market, close the
+        // real-trade journal entry with the on-chain resolution payout.
+        const pendingReal = realTradeLog.getPending();
+        if (pendingReal && pendingReal.marketSlug === settled.slug && settled.winner) {
+          const realWon = pendingReal.side === settled.winner;
+          const exitPrice = realWon ? 1.0 : 0.0;
+          const exitValue = (pendingReal.shares ?? 0) * exitPrice;
+          const realPnl = exitValue - (pendingReal.invested ?? 0);
+          const realRoi = pendingReal.invested ? (realPnl / pendingReal.invested) * 100 : 0;
+          realTradeLog.recordExit({
+            exitPrice, pnl: realPnl, roi: realRoi,
+            exitReason: realWon ? "SETTLED_WIN" : "SETTLED_LOSS",
+          });
+        }
       }
 
       if (poly.ok && poly.market && priceToBeat === null) {
@@ -299,11 +313,6 @@ async function main() {
       const ptbStr   = ptbDelta === null ? ""
         : ` (${ptbDelta > 0 ? ANSI.green + "+" : ptbDelta < 0 ? ANSI.red + "-" : ANSI.gray}$${Math.abs(ptbDelta).toFixed(2)}${ANSI.reset})`;
 
-      const shortcutsHint = trading.tradingEnabled && !keyboard.stdinError
-        ? `${ANSI.dim}[B]${ANSI.reset} Comprar  ${ANSI.dim}[S]${ANSI.reset} Vender  ${ANSI.dim}[Q]${ANSI.reset} Sair`
-        : `${ANSI.dim}[Q]${ANSI.reset} Sair`;
-      const confirmHint = keyboard.getConfirmHint({ rec, timeAware, marketUp, marketDown, tradeAmount: trading.tradeAmount });
-
       const intervalLine = (marketStartMsNow !== null && settlementMs5m !== null)
         ? kv("Intervalo:", `${isNextMarket ? ANSI.yellow : ""}${fmtEtHHMM(marketStartMsNow)} \u2192 ${fmtEtHHMM(settlementMs5m)} ET${isNextMarket ? ANSI.reset : ""}`)
         : null;
@@ -361,8 +370,8 @@ async function main() {
         tradeAmount: CONFIG.trading.tradeAmount,
         usdcBalance: liveTrading ? usdcBalance : null,
         usdcBalanceError: liveTrading ? usdcBalanceError : null,
-        confirmHint,
-        shortcutsHint,
+        confirmHint: null,
+        shortcutsHint: null,
         binanceSpot: `${colorPriceLine({ label: "", price: spotPrice, prevPrice: prevSpotPrice, decimals: 0, prefix: "$" })}`,
         chainlinkLine: `${clLine}${ptbStr}`,
         priceToBeat,
@@ -417,9 +426,9 @@ async function main() {
         "", // pnl
       ]);
 
-      // ── Dry-run paper-trading simulator ────────────────────────────────────
+      // ── Dry-run paper-trading simulator (drives real trade dispatch) ────
       {
-        await dryRun.tick({
+        const simResult = await dryRun.tick({
           slug: marketSlugNow,
           priceToBeat,
           btcPrice: currentPrice,
@@ -457,6 +466,46 @@ async function main() {
             vwapSlope !== null ? vwapSlope.toFixed(6)        : "",
           ],
         });
+
+        // ── Mirror the sim's decision on the real exchange ────────────
+        // Real orders only fire when the sim itself decided to BUY/SELL.
+        // The sim already enforced all entry/exit gates; the executor adds
+        // a slippage check (live price vs the sim's decision price).
+        if (trading.tradingEnabled && simResult) {
+          if (simResult.action === "BUY") {
+            await executeRealBuy({
+              trading, poly,
+              side: simResult.side,
+              simDecisionPrice: simResult.decisionPrice,
+              slippageTolerancePct: CONFIG.trading.slippageTolerancePct,
+              marketSlug: simResult.marketSlug,
+              botLabel: "5m",
+              onTrade: ({ entryPrice, invested, shares, timestamp }) => {
+                realTradeLog.recordEntry({
+                  side: simResult.side,
+                  marketSlug: simResult.marketSlug,
+                  entryPrice, invested, shares, timestamp,
+                  ptbAtEntry: priceToBeat,
+                  btcAtEntry: currentPrice,
+                  marketUpAtEntry: marketUp,
+                  marketDownAtEntry: marketDown,
+                });
+              },
+            });
+          } else if (simResult.action === "SELL") {
+            await executeRealSell({
+              trading, poly,
+              simDecisionPrice: simResult.decisionPrice,
+              slippageTolerancePct: CONFIG.trading.slippageTolerancePct,
+              exitReason: simResult.exitReason ?? "SIM_EXIT",
+              marketSlug: simResult.marketSlug,
+              botLabel: "5m",
+              onTrade: ({ exitPrice, pnl, roi, exitReason, timestamp }) => {
+                realTradeLog.recordExit({ exitPrice, pnl, roi, exitReason, timestamp });
+              },
+            });
+          }
+        }
       }
     } catch (err) {
       console.log("────────────────────────────");

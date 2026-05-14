@@ -3,8 +3,14 @@ import { clamp } from "../utils.js";
 import { setStatusMessage } from "../display.js";
 import { buyMarketOrder, sellMarketOrder } from "./orders.js";
 import { getPosition, recordBuy, recordSell, fetchPositionBalance } from "./position.js";
-import { computeTradeAmount } from "./sizing.js";
 import { notifyTrade } from "../notify.js";
+
+function logTrade(msg) {
+  try {
+    fs.mkdirSync("./logs", { recursive: true });
+    fs.appendFileSync("./logs/trade_orders.log", `${new Date().toISOString()} ${msg}\n`);
+  } catch { /* ignore */ }
+}
 
 function logError(msg) {
   try {
@@ -14,119 +20,139 @@ function logError(msg) {
 }
 
 /**
- * Drains the action queue produced by setupKeyboard(), executing each buy/sell
- * against the Polymarket CLOB.
+ * Check if the live bestAsk/bestBid has drifted too far from the price the
+ * simulator used to decide on the trade. Protects against entering at a
+ * materially worse price than the analysis assumed.
  *
- * @param {Array}  actionQueue  - mutated in place (items shifted out)
- * @param {object} ctx
- * @param {object} ctx.trading      - { client, tradingEnabled, tradeAmount }
- * @param {object} ctx.poly         - fetchPolymarketSnapshot() result
- * @param {object} ctx.rec          - decide() / decide5m() result
- * @param {object} ctx.timeAware    - applyTimeAwareness() result
- * @param {string} ctx.marketSlugNow
- * @param {number|null} [ctx.btcPrice]    - live BTC/USD price (for btcVsPtb entry filter)
- * @param {number|null} [ctx.priceToBeat] - latched BTC open price (for btcVsPtb entry filter)
- * @param {Function} [ctx.onSold]   - called with { side, entryPrice, exitPrice, pnl, roi } after a sell
+ * @returns {{ok: true, livePrice: number} | {ok: false, error: string, livePrice: number|null, drift: number|null}}
  */
-export async function processActionQueue(actionQueue, { trading, poly, rec, timeAware, marketSlugNow, btcPrice = null, priceToBeat = null, onSold, botLabel = "bot", sawMarketStart = true }) {
-  while (actionQueue.length && trading.tradingEnabled && poly.ok) {
-    const action = actionQueue.shift();
-    const marketUp = poly.prices.up;
-    const marketDown = poly.prices.down;
-
-    if (action.type === "buy") {
-      if (!sawMarketStart) {
-        setStatusMessage("Late start — aguardando próximo mercado para entrar", 5000);
-        continue;
-      }
-      const pos = getPosition();
-      if (pos.active) {
-        setStatusMessage("Já existe posição aberta");
-        continue;
-      }
-      const side = rec.action === "ENTER"
-        ? rec.side
-        : (timeAware.adjustedUp >= timeAware.adjustedDown ? "UP" : "DOWN");
-      const entryMktPriceCheck = side === "UP" ? marketUp : marketDown;
-      const minEntry = trading.entryMinMarketPrice ?? 0;
-      const maxEntry = trading.entryMaxMarketPrice ?? 1;
-      if (entryMktPriceCheck != null && (entryMktPriceCheck < minEntry || entryMktPriceCheck > maxEntry)) {
-        setStatusMessage(`Entrada bloqueada — preço ${(entryMktPriceCheck * 100).toFixed(1)}¢ fora do range [${(minEntry * 100).toFixed(0)}¢–${(maxEntry * 100).toFixed(0)}¢]`, 5000);
-        continue;
-      }
-      const blockedHours = trading.blockedHoursUtc ?? [];
-      const currentUtcHour = new Date().getUTCHours();
-      if (blockedHours.includes(currentUtcHour)) {
-        setStatusMessage(`Entrada bloqueada — hora UTC ${currentUtcHour}h na lista de horas filtradas`, 5000);
-        continue;
-      }
-      const btcVsPtbMinAbs = trading.btcVsPtbMinAbsUsd ?? 0;
-      if (btcVsPtbMinAbs > 0 && btcPrice != null && priceToBeat != null) {
-        const btcVsPtb = Math.abs(btcPrice - priceToBeat);
-        if (btcVsPtb < btcVsPtbMinAbs) {
-          setStatusMessage(`Entrada bloqueada — BTC vs PTB $${btcVsPtb.toFixed(1)} abaixo do mínimo $${btcVsPtbMinAbs}`, 5000);
-          continue;
-        }
-      }
-      const tokenId = side === "UP" ? poly.tokens.upTokenId : poly.tokens.downTokenId;
-      const book = side === "UP" ? poly.orderbook.up : poly.orderbook.down;
-      const rawAsk = book?.bestAsk ?? (side === "UP" ? marketUp : marketDown);
-      const priceNum = rawAsk != null ? clamp(rawAsk + 0.02, 0, 0.97) : 0.5;
-      const entryRef = rawAsk ?? priceNum;
-
-      const invested = computeTradeAmount({
-        baseAmount: trading.tradeAmount,
-        side,
-        entryPrice: entryRef,
-        modelUp: timeAware?.adjustedUp,
-        modelDown: timeAware?.adjustedDown,
-        config: trading,
-      });
-
-      setStatusMessage(`Comprando ${side}...`);
-      const result = await buyMarketOrder({ client: trading.client, tokenId, amount: invested, price: priceNum });
-      if (result.ok) {
-        const balance = await fetchPositionBalance(trading.client, tokenId);
-        const shares = balance > 0 ? balance : invested / entryRef;
-        recordBuy({ side, tokenId, shares, entryPrice: entryRef, invested, marketSlug: marketSlugNow, orderId: result.order?.orderID });
-        const orderId = result.order?.orderID ?? result.order?.id ?? "-";
-        const balanceStr = balance > 0 ? `shares: ${balance.toFixed(2)}` : "saldo 0 (ordem não preenchida?)";
-        const sizingTag = invested !== trading.tradeAmount ? ` [HIGH-CONV x${(invested / trading.tradeAmount).toFixed(1)}]` : "";
-        setStatusMessage(`COMPROU ${side} @ ${(entryRef * 100).toFixed(1)}¢ | $${invested}${sizingTag} | ${balanceStr} | ID: ${String(orderId).slice(0, 12)}`, 8000);
-        notifyTrade({ bot: botLabel, isLive: true, action: "BUY", side, market: marketSlugNow, entryPrice: entryRef, invested });
-      } else {
-        const errMsg = `Erro na compra: ${result.error}`;
-        setStatusMessage(errMsg, 15000);
-        logError(`BUY ${side} ${errMsg}`);
-      }
-    } else if (action.type === "sell") {
-      const pos = getPosition();
-      if (!pos.active) {
-        setStatusMessage("Nenhuma posição para vender");
-        continue;
-      }
-      setStatusMessage(`Vendendo ${pos.side}...`);
-      const sellBook = pos.side === "UP" ? poly.orderbook.up : poly.orderbook.down;
-      const rawBid = sellBook?.bestBid ?? (pos.side === "UP" ? marketUp : marketDown);
-      const sellPriceNum = rawBid != null ? clamp(rawBid - 0.02, 0.03, 1) : 0.5;
-      const actualShares = await fetchPositionBalance(trading.client, pos.tokenId);
-      const sharesToSell = actualShares > 0 ? actualShares : pos.shares;
-
-      const result = await sellMarketOrder({ client: trading.client, tokenId: pos.tokenId, amount: sharesToSell, price: sellPriceNum });
-      if (result.ok) {
-        const exitPrice = rawBid ?? sellPriceNum;
-        const pnl = (sharesToSell * exitPrice) - pos.invested;
-        const roi = (pnl / pos.invested) * 100;
-        const sign = pnl >= 0 ? "+" : "";
-        setStatusMessage(`VENDEU ${pos.side} | P&L: ${sign}$${pnl.toFixed(2)}`, 8000);
-        notifyTrade({ bot: botLabel, isLive: true, action: "SELL", side: pos.side, market: marketSlugNow, entryPrice: pos.entryPrice, exitPrice, roi, pnl, reason: "MANUAL" });
-        recordSell();
-        onSold?.({ side: pos.side, entryPrice: pos.entryPrice, exitPrice, pnl, roi });
-      } else {
-        const errMsg = `Erro na venda: ${result.error}`;
-        setStatusMessage(errMsg, 15000);
-        logError(`SELL ${pos.side} ${errMsg}`);
-      }
-    }
+function checkSlippage({ livePrice, simDecisionPrice, slippageTolerancePct }) {
+  if (livePrice == null || simDecisionPrice == null || simDecisionPrice === 0) {
+    return { ok: false, error: "missing price for slippage check", livePrice, drift: null };
   }
+  const drift = Math.abs(livePrice - simDecisionPrice) / simDecisionPrice;
+  if (drift > slippageTolerancePct) {
+    return { ok: false, error: `slippage ${(drift * 100).toFixed(2)}% > ${(slippageTolerancePct * 100).toFixed(2)}%`, livePrice, drift };
+  }
+  return { ok: true, livePrice };
+}
+
+/**
+ * Place a real BUY in response to a sim BUY decision.
+ *
+ * The simulator already enforced all entry gates (price range, blocked hours,
+ * btcVsPtb, cooldown). The only extra check here is slippage: if the live
+ * bestAsk drifted too far from the price the sim decided on, abort.
+ *
+ * @returns {Promise<{ok: true, executedPrice: number, shares: number} | {ok: false, error: string}>}
+ */
+export async function executeRealBuy({ trading, poly, side, simDecisionPrice, slippageTolerancePct, marketSlug, botLabel = "bot", onTrade = null }) {
+  if (!trading.tradingEnabled || !poly.ok) {
+    return { ok: false, error: "trading disabled or poly snapshot not ok" };
+  }
+  if (getPosition().active) {
+    return { ok: false, error: "position already open" };
+  }
+
+  const book = side === "UP" ? poly.orderbook.up : poly.orderbook.down;
+  const bestAsk = book?.bestAsk ?? null;
+
+  const slip = checkSlippage({ livePrice: bestAsk, simDecisionPrice, slippageTolerancePct });
+  if (!slip.ok) {
+    const msg = `BUY ${side} skipped — ${slip.error} (sim=${simDecisionPrice} live=${slip.livePrice})`;
+    setStatusMessage(msg, 5000);
+    logTrade(msg);
+    return { ok: false, error: slip.error };
+  }
+
+  const priceNum = clamp(bestAsk + 0.02, 0, 0.97);
+  const invested = trading.tradeAmount;
+  const tokenId = side === "UP" ? poly.tokens.upTokenId : poly.tokens.downTokenId;
+
+  setStatusMessage(`Comprando ${side} (sim)...`);
+  logTrade(`BUY ${side} attempting @ ${(bestAsk * 100).toFixed(1)}¢ (sim=${(simDecisionPrice * 100).toFixed(1)}¢) $${invested}`);
+
+  const result = await buyMarketOrder({ client: trading.client, tokenId, amount: invested, price: priceNum });
+  if (!result.ok) {
+    const errMsg = `Erro na compra: ${result.error}`;
+    setStatusMessage(errMsg, 15000);
+    logError(`BUY ${side} ${errMsg}`);
+    return { ok: false, error: result.error };
+  }
+
+  const balance = await fetchPositionBalance(trading.client, tokenId);
+  const shares = balance > 0 ? balance : invested / bestAsk;
+  recordBuy({ side, tokenId, shares, entryPrice: bestAsk, invested, marketSlug, orderId: result.order?.orderID });
+
+  const orderId = result.order?.orderID ?? result.order?.id ?? "-";
+  setStatusMessage(`COMPROU ${side} @ ${(bestAsk * 100).toFixed(1)}¢ | $${invested} | shares: ${shares.toFixed(2)} | ID: ${String(orderId).slice(0, 12)}`, 8000);
+  logTrade(`BUY ${side} filled price=${bestAsk} invested=${invested} shares=${shares} orderId=${orderId}`);
+  notifyTrade({ bot: botLabel, isLive: true, action: "BUY", side, market: marketSlug, entryPrice: bestAsk, invested });
+
+  onTrade?.({
+    action: "BUY", side, marketSlug,
+    entryPrice: bestAsk, invested, shares,
+    timestamp: Date.now(),
+  });
+
+  return { ok: true, executedPrice: bestAsk, shares };
+}
+
+/**
+ * Place a real SELL in response to a sim SELL decision.
+ *
+ * @returns {Promise<{ok: true, executedPrice: number, pnl: number, roi: number} | {ok: false, error: string}>}
+ */
+export async function executeRealSell({ trading, poly, simDecisionPrice, slippageTolerancePct, exitReason = "SIM_EXIT", marketSlug, botLabel = "bot", onTrade = null }) {
+  if (!trading.tradingEnabled || !poly.ok) {
+    return { ok: false, error: "trading disabled or poly snapshot not ok" };
+  }
+  const pos = getPosition();
+  if (!pos.active) {
+    return { ok: false, error: "no open position" };
+  }
+
+  const book = pos.side === "UP" ? poly.orderbook.up : poly.orderbook.down;
+  const bestBid = book?.bestBid ?? null;
+
+  const slip = checkSlippage({ livePrice: bestBid, simDecisionPrice, slippageTolerancePct });
+  if (!slip.ok) {
+    const msg = `SELL ${pos.side} skipped — ${slip.error} (sim=${simDecisionPrice} live=${slip.livePrice})`;
+    setStatusMessage(msg, 5000);
+    logTrade(msg);
+    return { ok: false, error: slip.error };
+  }
+
+  const sellPriceNum = clamp(bestBid - 0.02, 0.03, 1);
+  const actualShares = await fetchPositionBalance(trading.client, pos.tokenId);
+  const sharesToSell = actualShares > 0 ? actualShares : pos.shares;
+
+  setStatusMessage(`Vendendo ${pos.side} (${exitReason})...`);
+  logTrade(`SELL ${pos.side} attempting @ ${(bestBid * 100).toFixed(1)}¢ reason=${exitReason} shares=${sharesToSell}`);
+
+  const result = await sellMarketOrder({ client: trading.client, tokenId: pos.tokenId, amount: sharesToSell, price: sellPriceNum });
+  if (!result.ok) {
+    const errMsg = `Erro na venda: ${result.error}`;
+    setStatusMessage(errMsg, 15000);
+    logError(`SELL ${pos.side} ${errMsg}`);
+    return { ok: false, error: result.error };
+  }
+
+  const exitPrice = bestBid;
+  const pnl = (sharesToSell * exitPrice) - pos.invested;
+  const roi = (pnl / pos.invested) * 100;
+  const sign = pnl >= 0 ? "+" : "";
+  setStatusMessage(`VENDEU ${pos.side} (${exitReason}) | P&L: ${sign}$${pnl.toFixed(2)}`, 8000);
+  logTrade(`SELL ${pos.side} filled price=${exitPrice} pnl=${pnl.toFixed(4)} roi=${roi.toFixed(2)}% reason=${exitReason}`);
+  notifyTrade({ bot: botLabel, isLive: true, action: "SELL", side: pos.side, market: marketSlug, entryPrice: pos.entryPrice, exitPrice, roi, pnl, reason: exitReason });
+
+  onTrade?.({
+    action: "SELL", side: pos.side, marketSlug,
+    entryPrice: pos.entryPrice, exitPrice, invested: pos.invested,
+    shares: sharesToSell, pnl, roi, exitReason,
+    entryTimestamp: pos.timestamp, timestamp: Date.now(),
+  });
+
+  recordSell();
+  return { ok: true, executedPrice: exitPrice, pnl, roi };
 }

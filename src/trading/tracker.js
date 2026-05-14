@@ -55,7 +55,7 @@ export function createTradeTracker() {
           const pnl = won ? (1 / ep) - 1 : -1;
           if (won) runningStats.wins += 1; else runningStats.losses += 1;
           runningStats.totalPnl += pnl;
-          const outcome = { slug: tradeState.slug, side: tradeState.side, won, pnl, ts: new Date().toISOString() };
+          const outcome = { slug: tradeState.slug, side: tradeState.side, won, pnl, winner, ts: new Date().toISOString() };
           recentOutcomes.unshift(outcome);
           if (recentOutcomes.length > 10) recentOutcomes.pop();
           settled = outcome;

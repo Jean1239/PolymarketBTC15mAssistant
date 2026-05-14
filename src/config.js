@@ -94,6 +94,11 @@ export const CONFIG = {
     // Real orders fire iff POLYMARKET_LIVE_TRADING=true AND POLYMARKET_PRIVATE_KEY
     // is set. Replaces the previous (DRY_RUN, POLYMARKET_LIVE_TRADING) pair.
     liveTradingEnabled: (process.env.POLYMARKET_LIVE_TRADING || "").toLowerCase() === "true",
+    // Max fractional drift (0–1) between the sim's decision price and the live
+    // bestAsk/bestBid at order-send time. If the market moved more than this between
+    // the sim deciding to trade and the order actually firing, the real order is
+    // skipped (sim still records the virtual trade). Default 0.02 = 2%.
+    slippageTolerancePct: Number(process.env.TRADE_SLIPPAGE_TOLERANCE_PCT ?? "0.02"),
   },
 
   chainlink: {

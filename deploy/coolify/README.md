@@ -68,12 +68,21 @@ POLYMARKET_PRIVATE_KEY=0x...
 POLYMARKET_FUNDER=0x...
 POLYMARKET_SIGNATURE_TYPE=2
 POLYMARKET_TRADE_AMOUNT=5
+# Optional: max allowed drift between the sim's decision price and the live
+# orderbook at order-send time (default 0.02 = 2%).
+# TRADE_SLIPPAGE_TOLERANCE_PCT=0.02
 ```
 
 To keep a bot in paper-trading-only mode, leave `POLYMARKET_LIVE_TRADING`
 unset (or set it to `false`) — the simulator and CSV logging still work even
 if `POLYMARKET_PRIVATE_KEY` is configured. There is no separate `DRY_RUN`
 switch any more.
+
+The bots are **fully autonomous**: every tick the dry-run simulator emits a
+BUY/HOLD/SELL/WAIT decision, and when live trading is enabled the main loop
+mirrors that decision on the CLOB. There is no manual `[B]`/`[S]` keyboard
+step — Coolify Application containers have no interactive TTY by design, and
+the prior keypress path was removed.
 
 ### `dashboard`
 
@@ -84,6 +93,9 @@ AUTH_TRUSTED_ORIGINS=https://dashboard.example.com
 DASHBOARD_ADMIN_EMAIL=you@example.com
 DASHBOARD_ADMIN_PASSWORD=<minimum 12 chars>
 DASHBOARD_ADMIN_NAME=Admin
+# Optional: which trade journal to render. `sim` (default) reads dryrun_*_trades.csv;
+# set to `real` in the prod project so the UI shows actual executed orders instead.
+# DASHBOARD_TRADE_SOURCE=real
 ```
 
 `SQLITE_PATH` defaults to `/app/logs/auth.db` and rarely needs to be set

@@ -458,6 +458,20 @@ function createSimulator(csvPath, header, config, label = "bot") {
     // outcome/btc_at_settlement are left blank on partial flushes and only
     // filled on the final flush (market change or process exit).
     if (buffer.length >= 5) _flush(true);
+
+    // Return the tick's decision so the main loop can mirror it on the real
+    // exchange. Numeric values come back as JS numbers (not formatted strings)
+    // and are null when not applicable.
+    return {
+      action: simAction,            // "WAIT" | "BUY" | "HOLD" | "SELL"
+      side: simSide || null,        // "UP" | "DOWN" | null
+      decisionPrice:
+        simAction === "BUY"  ? Number(simEntryPrice)   :
+        simAction === "SELL" ? Number(simCurrentPrice) : null,
+      invested: simAction === "BUY" ? Number(simInvested) : null,
+      exitReason: simExitReason || null,
+      marketSlug: slug,
+    };
   }
 
   /** Flush current buffer immediately (call on process exit). */
