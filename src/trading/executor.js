@@ -5,15 +5,12 @@ import { buyMarketOrder, sellMarketOrder } from "./orders.js";
 import { getPosition, recordBuy, recordSell, fetchPositionBalance } from "./position.js";
 import { notifyTrade } from "../notify.js";
 
-// Polymarket CLOB V2 reports both pUSD collateral and CTF outcome shares as
-// raw integer strings with 6 decimals.
-const CLOB_DECIMALS = 6;
-const CLOB_SCALE = 10 ** CLOB_DECIMALS;
-
 /**
  * Parse the OrderResponse returned by `createAndPostMarketOrder`. Returns the
  * actual collateral and shares moved, plus an `avgFillPrice` computed from
- * them. All numbers are in human units (pUSD, shares), not raw integers.
+ * them. CLOB V2 reports `makingAmount` / `takingAmount` as decimal strings
+ * already in human units (e.g. "0.999999" for ≈ $1, "1.886791" for ≈ 1.89
+ * shares), so we just parse them as floats — no further scaling.
  *
  * For a BUY the maker side contributes pUSD and the taker (us) receives
  * shares, so `makingAmount` is the collateral we paid and `takingAmount`
@@ -27,16 +24,16 @@ function parseFillFromOrder(order, side) {
   const status = order?.status ?? null;
   const errorMsg = order?.errorMsg ?? null;
 
-  const makingRaw = order?.makingAmount ? Number(order.makingAmount) : 0;
-  const takingRaw = order?.takingAmount ? Number(order.takingAmount) : 0;
+  const makingAmount = order?.makingAmount ? Number(order.makingAmount) : 0;
+  const takingAmount = order?.takingAmount ? Number(order.takingAmount) : 0;
 
   let collateral, shares;
   if (side === "BUY") {
-    collateral = makingRaw / CLOB_SCALE;
-    shares = takingRaw / CLOB_SCALE;
+    collateral = makingAmount;
+    shares = takingAmount;
   } else {
-    shares = makingRaw / CLOB_SCALE;
-    collateral = takingRaw / CLOB_SCALE;
+    shares = makingAmount;
+    collateral = takingAmount;
   }
 
   const filled = shares > 0 && collateral > 0;

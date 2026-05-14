@@ -174,8 +174,11 @@ export async function fetchPositionBalance(client, tokenId) {
       asset_type: AssetType.CONDITIONAL,
       token_id: tokenId,
     });
-    // getBalanceAllowance returns raw token units (6 decimals); convert to shares
-    return Number(res?.balance ?? 0) / 1e6;
+    // CLOB V2 returns `balance` as a decimal string already in human share
+    // units (e.g. "1.886791"). The V1 SDK reported raw 6-decimal integers
+    // and needed `/ 1e6` — that division was carried over by mistake and is
+    // now removed.
+    return Number(res?.balance ?? 0);
   } catch {
     return 0;
   }
