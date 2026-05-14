@@ -36,7 +36,9 @@ export async function initTradingClient(config) {
     ? SignatureTypeV2.POLY_PROXY
     : signatureType === 2
       ? SignatureTypeV2.POLY_GNOSIS_SAFE
-      : SignatureTypeV2.EOA;
+      : signatureType === 3
+        ? SignatureTypeV2.POLY_1271
+        : SignatureTypeV2.EOA;
 
   // For EOA, funder should be undefined (not the signer address) so the library
   // uses signer address as maker directly.
@@ -44,8 +46,12 @@ export async function initTradingClient(config) {
     ? undefined
     : (funder || undefined);
 
-  // Auto-detect: se funder é um contrato GnosisSafe mas o tipo está como POLY_PROXY,
-  // corrige para POLY_GNOSIS_SAFE automaticamente.
+  // Auto-detect when the user left POLYMARKET_SIGNATURE_TYPE on the default
+  // POLY_PROXY. We probe the funder contract in this order:
+  //   1. Standard Gnosis Safe       — has `isOwner(address)` and returns true for our EOA → switch to POLY_GNOSIS_SAFE.
+  //   2. Polymarket smart wallet    — has `isValidSignature(bytes32, bytes)` (EIP-1271)
+  //                                   AND single `owner()` matching our EOA → switch to POLY_1271.
+  //   3. Otherwise                  — leave as POLY_PROXY (email/magic-auth proxy).
   if (sigType === SignatureTypeV2.POLY_PROXY && funderAddr) {
     try {
       const provider = new ethers.JsonRpcProvider(
@@ -55,24 +61,38 @@ export async function initTradingClient(config) {
       );
       const code = await provider.getCode(funderAddr);
       if (code && code !== "0x" && code.length > 10) {
-        const gsSafe = new ethers.Contract(funderAddr,
-          ["function isOwner(address) view returns (bool)"],
+        const probe = new ethers.Contract(funderAddr,
+          [
+            "function isOwner(address) view returns (bool)",
+            "function owner() view returns (address)",
+          ],
           provider
         );
         try {
-          const isOwner = await gsSafe.isOwner(_wallet.address);
-          if (isOwner) {
+          const isSafeOwner = await probe.isOwner(_wallet.address);
+          if (isSafeOwner) {
             sigType = SignatureTypeV2.POLY_GNOSIS_SAFE;
             logTrading(`Auto-detectado: funder é GnosisSafe, usando POLY_GNOSIS_SAFE. Defina POLYMARKET_SIGNATURE_TYPE=2 para evitar esta detecção.`);
           }
-        } catch { /* não é GnosisSafe */ }
+        } catch {
+          // Not a Gnosis Safe — try the Polymarket-proxy / EIP-1271 shape.
+          try {
+            const ownerAddr = await probe.owner();
+            if (ownerAddr && ownerAddr.toLowerCase() === _wallet.address.toLowerCase()) {
+              sigType = SignatureTypeV2.POLY_1271;
+              logTrading(`Auto-detectado: funder é smart-wallet EIP-1271 (owner=EOA), usando POLY_1271. Defina POLYMARKET_SIGNATURE_TYPE=3 para evitar esta detecção.`);
+            }
+          } catch { /* nem owner() nem isOwner() — mantém POLY_PROXY */ }
+        }
       }
       provider.destroy();
     } catch { /* ignora erro de detecção */ }
   }
 
   const sigTypeName = sigType === SignatureTypeV2.POLY_PROXY ? "POLY_PROXY"
-    : sigType === SignatureTypeV2.POLY_GNOSIS_SAFE ? "GNOSIS_SAFE" : "EOA";
+    : sigType === SignatureTypeV2.POLY_GNOSIS_SAFE ? "GNOSIS_SAFE"
+    : sigType === SignatureTypeV2.POLY_1271 ? "POLY_1271"
+    : "EOA";
   logTrading(`EOA=${_wallet.address} funder=${funderAddr ?? "(none)"} sigType=${sigTypeName}(${sigType})`);
 
   const clientL1 = new ClobClient({
