@@ -83,7 +83,7 @@ function checkSlippage({ livePrice, simDecisionPrice, slippageTolerancePct }) {
  *
  * @returns {Promise<{ok: true, executedPrice: number, shares: number} | {ok: false, error: string}>}
  */
-export async function executeRealBuy({ trading, poly, side, simDecisionPrice, slippageTolerancePct, marketSlug, botLabel = "bot", onTrade = null }) {
+export async function executeRealBuy({ trading, poly, side, simDecisionPrice, slippageTolerancePct, takerBuffer = 0.05, marketSlug, botLabel = "bot", onTrade = null }) {
   if (!trading.tradingEnabled || !poly.ok) {
     return { ok: false, error: "trading disabled or poly snapshot not ok" };
   }
@@ -102,7 +102,13 @@ export async function executeRealBuy({ trading, poly, side, simDecisionPrice, sl
     return { ok: false, error: slip.error };
   }
 
-  const priceNum = clamp(bestAsk + 0.02, 0, 0.97);
+  // Limit = bestAsk + takerBuffer. CLOB matches at any price ≤ limit, so a
+  // wider buffer just protects against tiny inter-tick book moves causing
+  // "no orders found to match" FAK kills; it does not increase the price we
+  // actually pay unless liquidity at bestAsk gets fully taken between snapshot
+  // and order processing. The slippage guard above already caps the worst
+  // realized fill, so the buffer can be generous.
+  const priceNum = clamp(bestAsk + takerBuffer, 0, 0.97);
   const tokenId = side === "UP" ? poly.tokens.upTokenId : poly.tokens.downTokenId;
 
   setStatusMessage(`Comprando ${side} (sim)...`);
@@ -158,7 +164,7 @@ export async function executeRealBuy({ trading, poly, side, simDecisionPrice, sl
  *
  * @returns {Promise<{ok: true, executedPrice: number, pnl: number, roi: number} | {ok: false, error: string}>}
  */
-export async function executeRealSell({ trading, poly, simDecisionPrice, slippageTolerancePct, exitReason = "SIM_EXIT", marketSlug, botLabel = "bot", onTrade = null }) {
+export async function executeRealSell({ trading, poly, simDecisionPrice, slippageTolerancePct, takerBuffer = 0.05, exitReason = "SIM_EXIT", marketSlug, botLabel = "bot", onTrade = null }) {
   if (!trading.tradingEnabled || !poly.ok) {
     return { ok: false, error: "trading disabled or poly snapshot not ok" };
   }
@@ -178,7 +184,7 @@ export async function executeRealSell({ trading, poly, simDecisionPrice, slippag
     return { ok: false, error: slip.error };
   }
 
-  const sellPriceNum = clamp(bestBid - 0.02, 0.03, 1);
+  const sellPriceNum = clamp(bestBid - takerBuffer, 0.03, 1);
   // Always re-read on-chain shares before selling: in-memory pos.shares may be
   // stale if the previous buy partial-filled and we never refreshed.
   const actualShares = await fetchPositionBalance(trading.client, pos.tokenId);

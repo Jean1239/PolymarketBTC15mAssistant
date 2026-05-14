@@ -149,6 +149,7 @@ Called once at startup via `applyGlobalProxyFromEnv()`. Reads `HTTPS_PROXY`/`HTT
 | `POLYMARKET_SIGNATURE_TYPE` | `0` | `0`=EOA, `1`=POLY_PROXY (auto-detects GnosisSafe or POLY_1271 from funder shape), `2`=GNOSIS_SAFE (Metamask flow), `3`=POLY_1271 (Polymarket smart-wallet flow — Phantom/email-non-magic) |
 | `POLYMARKET_TRADE_AMOUNT` | `5` | pUSD amount per trade |
 | `TRADE_SLIPPAGE_TOLERANCE_PCT` | `0.02` | Max fractional drift between the sim's decision price and the live bestAsk/bestBid before a real order is skipped. `0.02` = 2%. |
+| `TRADE_TAKER_BUFFER` | `0.05` | Absolute price buffer added to `bestAsk` on BUY (or subtracted from `bestBid` on SELL) when posting the FAK limit. A wider buffer keeps the order from being killed with "no orders found to match" when the book moves between snapshot and CLOB processing; it does not raise the actual fill price (slippage guard above remains the cap). `0.05` = 5¢. |
 | `DASHBOARD_TRADE_SOURCE` | `sim` | Which trade journal the dashboard renders. `sim` reads `dryrun_{15m,5m}_trades.csv`; `real` reads `real_{15m,5m}_trades.csv`. Tick CSVs (`/api/live`) always come from the simulator. |
 | `TRADE_TAKE_PROFIT_PCT` | `20` | ROI % to recommend take-profit (requires model reversal) |
 | `TRADE_STOP_LOSS_PCT` | `25` | ROI % loss to recommend stop-loss (requires model reversal) |

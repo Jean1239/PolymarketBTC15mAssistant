@@ -99,6 +99,13 @@ export const CONFIG = {
     // the sim deciding to trade and the order actually firing, the real order is
     // skipped (sim still records the virtual trade). Default 0.02 = 2%.
     slippageTolerancePct: Number(process.env.TRADE_SLIPPAGE_TOLERANCE_PCT ?? "0.02"),
+    // Absolute price buffer (0–1) added to bestAsk on BUY and subtracted from
+    // bestBid on SELL when posting the FAK order's limit price. Wider buffer
+    // protects against inter-tick book moves that would otherwise kill the
+    // order with "no orders found to match"; it does NOT raise the price we
+    // actually pay (CLOB still matches at the best available, capped by the
+    // slippage guard above). Default 0.05 = 5¢.
+    takerBuffer: Number(process.env.TRADE_TAKER_BUFFER ?? "0.05"),
   },
 
   chainlink: {

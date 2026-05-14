@@ -498,6 +498,7 @@ async function main() {
               side: simResult.side,
               simDecisionPrice: simResult.decisionPrice,
               slippageTolerancePct: CONFIG.trading.slippageTolerancePct,
+              takerBuffer: CONFIG.trading.takerBuffer,
               marketSlug: simResult.marketSlug,
               botLabel: "5m",
               onTrade: ({ entryPrice, invested, shares, timestamp }) => {
@@ -517,6 +518,7 @@ async function main() {
               trading, poly,
               simDecisionPrice: simResult.decisionPrice,
               slippageTolerancePct: CONFIG.trading.slippageTolerancePct,
+              takerBuffer: CONFIG.trading.takerBuffer,
               exitReason: simResult.exitReason ?? "SIM_EXIT",
               marketSlug: simResult.marketSlug,
               botLabel: "5m",
