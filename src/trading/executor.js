@@ -5,6 +5,46 @@ import { buyMarketOrder, sellMarketOrder } from "./orders.js";
 import { getPosition, recordBuy, recordSell, fetchPositionBalance } from "./position.js";
 import { notifyTrade } from "../notify.js";
 
+// Polymarket CLOB V2 reports both pUSD collateral and CTF outcome shares as
+// raw integer strings with 6 decimals.
+const CLOB_DECIMALS = 6;
+const CLOB_SCALE = 10 ** CLOB_DECIMALS;
+
+/**
+ * Parse the OrderResponse returned by `createAndPostMarketOrder`. Returns the
+ * actual collateral and shares moved, plus an `avgFillPrice` computed from
+ * them. All numbers are in human units (pUSD, shares), not raw integers.
+ *
+ * For a BUY the maker side contributes pUSD and the taker (us) receives
+ * shares, so `makingAmount` is the collateral we paid and `takingAmount`
+ * is the shares we received. For a SELL the roles invert.
+ *
+ * `order.success === true` with zero amounts indicates a no-fill (e.g. an
+ * FAK order that never matched at the limit price).
+ */
+function parseFillFromOrder(order, side) {
+  const success = order?.success === true;
+  const status = order?.status ?? null;
+  const errorMsg = order?.errorMsg ?? null;
+
+  const makingRaw = order?.makingAmount ? Number(order.makingAmount) : 0;
+  const takingRaw = order?.takingAmount ? Number(order.takingAmount) : 0;
+
+  let collateral, shares;
+  if (side === "BUY") {
+    collateral = makingRaw / CLOB_SCALE;
+    shares = takingRaw / CLOB_SCALE;
+  } else {
+    shares = makingRaw / CLOB_SCALE;
+    collateral = takingRaw / CLOB_SCALE;
+  }
+
+  const filled = shares > 0 && collateral > 0;
+  const avgFillPrice = filled ? collateral / shares : null;
+
+  return { success, status, errorMsg, collateral, shares, avgFillPrice, filled };
+}
+
 function logTrade(msg) {
   try {
     fs.mkdirSync("./logs", { recursive: true });
@@ -66,13 +106,12 @@ export async function executeRealBuy({ trading, poly, side, simDecisionPrice, sl
   }
 
   const priceNum = clamp(bestAsk + 0.02, 0, 0.97);
-  const invested = trading.tradeAmount;
   const tokenId = side === "UP" ? poly.tokens.upTokenId : poly.tokens.downTokenId;
 
   setStatusMessage(`Comprando ${side} (sim)...`);
-  logTrade(`BUY ${side} attempting @ ${(bestAsk * 100).toFixed(1)}¢ (sim=${(simDecisionPrice * 100).toFixed(1)}¢) $${invested}`);
+  logTrade(`BUY ${side} attempting @ ${(bestAsk * 100).toFixed(1)}¢ (sim=${(simDecisionPrice * 100).toFixed(1)}¢) $${trading.tradeAmount}`);
 
-  const result = await buyMarketOrder({ client: trading.client, tokenId, amount: invested, price: priceNum });
+  const result = await buyMarketOrder({ client: trading.client, tokenId, amount: trading.tradeAmount, price: priceNum });
   if (!result.ok) {
     const errMsg = `Erro na compra: ${result.error}`;
     setStatusMessage(errMsg, 15000);
@@ -80,22 +119,41 @@ export async function executeRealBuy({ trading, poly, side, simDecisionPrice, sl
     return { ok: false, error: result.error };
   }
 
-  const balance = await fetchPositionBalance(trading.client, tokenId);
-  const shares = balance > 0 ? balance : invested / bestAsk;
-  recordBuy({ side, tokenId, shares, entryPrice: bestAsk, invested, marketSlug, orderId: result.order?.orderID });
-
+  const fill = parseFillFromOrder(result.order, "BUY");
   const orderId = result.order?.orderID ?? result.order?.id ?? "-";
-  setStatusMessage(`COMPROU ${side} @ ${(bestAsk * 100).toFixed(1)}¢ | $${invested} | shares: ${shares.toFixed(2)} | ID: ${String(orderId).slice(0, 12)}`, 8000);
-  logTrade(`BUY ${side} filled price=${bestAsk} invested=${invested} shares=${shares} orderId=${orderId}`);
-  notifyTrade({ bot: botLabel, isLive: true, action: "BUY", side, market: marketSlug, entryPrice: bestAsk, invested });
+
+  if (!fill.success || !fill.filled) {
+    const reason = fill.errorMsg || fill.status || "no fill";
+    const msg = `BUY ${side} not filled — ${reason} (status=${fill.status}, shares=${fill.shares})`;
+    setStatusMessage(msg, 8000);
+    logTrade(`${msg} orderId=${orderId}`);
+    return { ok: false, error: reason };
+  }
+
+  // Cross-check with on-chain balance: the order response reports the matched
+  // amounts, but the authoritative figure is the wallet's actual share balance.
+  // Use on-chain only when it materially differs from the order response (e.g.
+  // a prior partial position exists), otherwise trust the response so the
+  // avgFillPrice we just computed stays consistent with shares.
+  const chainBalance = await fetchPositionBalance(trading.client, tokenId);
+  const shares = chainBalance > 0 ? chainBalance : fill.shares;
+  const investedActual = fill.collateral;
+  const entryPrice = fill.avgFillPrice;
+
+  recordBuy({ side, tokenId, shares, entryPrice, invested: investedActual, marketSlug, orderId });
+
+  const partialTag = Math.abs(investedActual - trading.tradeAmount) > 0.01 ? ` [PARTIAL: $${investedActual.toFixed(2)}/$${trading.tradeAmount}]` : "";
+  setStatusMessage(`COMPROU ${side} @ ${(entryPrice * 100).toFixed(1)}¢ | $${investedActual.toFixed(2)}${partialTag} | shares: ${shares.toFixed(2)} | ID: ${String(orderId).slice(0, 12)}`, 8000);
+  logTrade(`BUY ${side} filled avgPrice=${entryPrice.toFixed(4)} collateral=${investedActual.toFixed(4)} shares=${shares.toFixed(4)} status=${fill.status} orderId=${orderId}`);
+  notifyTrade({ bot: botLabel, isLive: true, action: "BUY", side, market: marketSlug, entryPrice, invested: investedActual });
 
   onTrade?.({
     action: "BUY", side, marketSlug,
-    entryPrice: bestAsk, invested, shares,
+    entryPrice, invested: investedActual, shares,
     timestamp: Date.now(),
   });
 
-  return { ok: true, executedPrice: bestAsk, shares };
+  return { ok: true, executedPrice: entryPrice, shares };
 }
 
 /**
@@ -124,6 +182,8 @@ export async function executeRealSell({ trading, poly, simDecisionPrice, slippag
   }
 
   const sellPriceNum = clamp(bestBid - 0.02, 0.03, 1);
+  // Always re-read on-chain shares before selling: in-memory pos.shares may be
+  // stale if the previous buy partial-filled and we never refreshed.
   const actualShares = await fetchPositionBalance(trading.client, pos.tokenId);
   const sharesToSell = actualShares > 0 ? actualShares : pos.shares;
 
@@ -138,21 +198,44 @@ export async function executeRealSell({ trading, poly, simDecisionPrice, slippag
     return { ok: false, error: result.error };
   }
 
-  const exitPrice = bestBid;
-  const pnl = (sharesToSell * exitPrice) - pos.invested;
-  const roi = (pnl / pos.invested) * 100;
+  const fill = parseFillFromOrder(result.order, "SELL");
+  const orderId = result.order?.orderID ?? result.order?.id ?? "-";
+
+  if (!fill.success || !fill.filled) {
+    const reason = fill.errorMsg || fill.status || "no fill";
+    const msg = `SELL ${pos.side} not filled — ${reason} (status=${fill.status})`;
+    setStatusMessage(msg, 8000);
+    logTrade(`${msg} orderId=${orderId}`);
+    return { ok: false, error: reason };
+  }
+
+  const exitPrice = fill.avgFillPrice;
+  const collateralReceived = fill.collateral;
+  const sharesSold = fill.shares;
+  const pnl = collateralReceived - pos.invested;
+  const roi = pos.invested > 0 ? (pnl / pos.invested) * 100 : 0;
   const sign = pnl >= 0 ? "+" : "";
-  setStatusMessage(`VENDEU ${pos.side} (${exitReason}) | P&L: ${sign}$${pnl.toFixed(2)}`, 8000);
-  logTrade(`SELL ${pos.side} filled price=${exitPrice} pnl=${pnl.toFixed(4)} roi=${roi.toFixed(2)}% reason=${exitReason}`);
+
+  // Verify how much of the position remains on-chain after the fill. If the
+  // FAK only partially matched, leftover shares stay on-chain and will redeem
+  // at settlement; surface that in the log so it's not silent.
+  const remaining = await fetchPositionBalance(trading.client, pos.tokenId);
+  const partialTag = remaining > 0.01 ? ` [PARTIAL: ${sharesSold.toFixed(2)} sold, ${remaining.toFixed(2)} left]` : "";
+
+  setStatusMessage(`VENDEU ${pos.side} (${exitReason}) | P&L: ${sign}$${pnl.toFixed(2)}${partialTag}`, 8000);
+  logTrade(`SELL ${pos.side} filled avgPrice=${exitPrice.toFixed(4)} collateral=${collateralReceived.toFixed(4)} shares=${sharesSold.toFixed(4)} remaining=${remaining.toFixed(4)} pnl=${pnl.toFixed(4)} roi=${roi.toFixed(2)}% reason=${exitReason} orderId=${orderId}`);
   notifyTrade({ bot: botLabel, isLive: true, action: "SELL", side: pos.side, market: marketSlug, entryPrice: pos.entryPrice, exitPrice, roi, pnl, reason: exitReason });
 
   onTrade?.({
     action: "SELL", side: pos.side, marketSlug,
     entryPrice: pos.entryPrice, exitPrice, invested: pos.invested,
-    shares: sharesToSell, pnl, roi, exitReason,
+    shares: sharesSold, pnl, roi, exitReason,
     entryTimestamp: pos.timestamp, timestamp: Date.now(),
   });
 
+  // Always clear in-memory position after a sell. Any leftover shares from a
+  // partial fill stay on-chain and will redeem at settlement via redeem.js —
+  // we already logged the partial above so the variance is visible.
   recordSell();
-  return { ok: true, executedPrice: exitPrice, pnl, roi };
+  return { ok: true, executedPrice: exitPrice, pnl, roi, partial: remaining > 0.01 };
 }
