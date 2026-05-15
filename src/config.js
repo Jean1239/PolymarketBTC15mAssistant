@@ -99,13 +99,15 @@ export const CONFIG = {
     // the sim deciding to trade and the order actually firing, the real order is
     // skipped (sim still records the virtual trade). Default 0.02 = 2%.
     slippageTolerancePct: Number(process.env.TRADE_SLIPPAGE_TOLERANCE_PCT ?? "0.02"),
-    // Absolute price buffer (0–1) added to bestAsk on BUY and subtracted from
-    // bestBid on SELL when posting the FAK order's limit price. Wider buffer
-    // protects against inter-tick book moves that would otherwise kill the
-    // order with "no orders found to match"; it does NOT raise the price we
-    // actually pay (CLOB still matches at the best available, capped by the
-    // slippage guard above). Default 0.05 = 5¢.
-    takerBuffer: Number(process.env.TRADE_TAKER_BUFFER ?? "0.05"),
+    // Absolute price buffer (0–1) added to the sim's decision price on BUY
+    // (and subtracted from bestBid on SELL) when posting the FAK order's
+    // limit price. On BUY the limit is `simDecisionPrice + takerBuffer`, so
+    // the buffer is the maximum slippage we accept relative to the price the
+    // sim signed off on — beyond that the FAK correctly kills because filling
+    // would be -EV at the model's probability. CLOB still matches at the
+    // lowest available ask ≤ limit, so a normal book fills at simDecisionPrice
+    // or better. Default 0.10 = 10¢.
+    takerBuffer: Number(process.env.TRADE_TAKER_BUFFER ?? "0.10"),
     // When true the bot skips the on-chain CTF.redeemPositions call after a
     // market settles. Polymarket-managed wallets (POLY_PROXY, POLY_1271,
     // POLY_GNOSIS_SAFE) hold the conditional tokens in their smart wallet,

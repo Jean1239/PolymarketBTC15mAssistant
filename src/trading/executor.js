@@ -105,16 +105,17 @@ export async function executeRealBuy({ trading, poly, side, simDecisionPrice, ta
     return { ok: false, error: "no bestAsk" };
   }
 
-  // Limit = bestAsk + takerBuffer. CLOB matches at any price ≤ limit, so a
-  // wider buffer just protects against inter-tick book moves causing "no
-  // orders found to match" FAK kills; it does not raise the price we actually
-  // pay unless liquidity at bestAsk gets fully taken between snapshot and
-  // order processing.
-  const priceNum = clamp(bestAsk + takerBuffer, 0, 0.97);
+  // Limit = simDecisionPrice + takerBuffer. Anchoring to the sim's decision
+  // price (not the live bestAsk) means the cap doesn't age between snapshot
+  // and order-send: if the book ran above the cap before our order landed,
+  // the FAK kills correctly because filling there would be -EV at the
+  // probability the sim used. CLOB still matches at the lowest available ask
+  // ≤ limit, so a normal book at simDecisionPrice fills at that price.
+  const priceNum = clamp(simDecisionPrice + takerBuffer, 0, 0.97);
   const tokenId = side === "UP" ? poly.tokens.upTokenId : poly.tokens.downTokenId;
 
   setStatusMessage(`Comprando ${side} (sim)...`);
-  logTrade(`BUY ${side} attempting @ ${(bestAsk * 100).toFixed(1)}¢ (sim=${(simDecisionPrice * 100).toFixed(1)}¢) $${trading.tradeAmount}`);
+  logTrade(`BUY ${side} attempting limit=${(priceNum * 100).toFixed(1)}¢ (sim=${(simDecisionPrice * 100).toFixed(1)}¢ live=${(bestAsk * 100).toFixed(1)}¢) $${trading.tradeAmount}`);
 
   const result = await buyMarketOrder({ client: trading.client, tokenId, amount: trading.tradeAmount, price: priceNum });
   if (!result.ok) {
