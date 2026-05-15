@@ -78,12 +78,17 @@ function checkSlippage({ livePrice, simDecisionPrice, slippageTolerancePct }) {
  * Place a real BUY in response to a sim BUY decision.
  *
  * The simulator already enforced all entry gates (price range, blocked hours,
- * btcVsPtb, cooldown). The only extra check here is slippage: if the live
- * bestAsk drifted too far from the price the sim decided on, abort.
+ * btcVsPtb, cooldown). No BUY-side slippage check: the FAK limit `bestAsk +
+ * takerBuffer` itself caps the worst realized fill, and an explicit slippage
+ * guard was filtering out exactly the favorable book moves that correlate
+ * with winners (dry-run vs real comparison on 2026-05-14/15 showed 26 skips
+ * with +$7.26 of forgone dry PnL).
+ *
+ * SELL still uses the slippage guard via executeRealSell.
  *
  * @returns {Promise<{ok: true, executedPrice: number, shares: number} | {ok: false, error: string}>}
  */
-export async function executeRealBuy({ trading, poly, side, simDecisionPrice, slippageTolerancePct, takerBuffer = 0.05, marketSlug, botLabel = "bot", onTrade = null }) {
+export async function executeRealBuy({ trading, poly, side, simDecisionPrice, takerBuffer = 0.05, marketSlug, botLabel = "bot", onTrade = null }) {
   if (!trading.tradingEnabled || !poly.ok) {
     return { ok: false, error: "trading disabled or poly snapshot not ok" };
   }
@@ -93,21 +98,18 @@ export async function executeRealBuy({ trading, poly, side, simDecisionPrice, sl
 
   const book = side === "UP" ? poly.orderbook.up : poly.orderbook.down;
   const bestAsk = book?.bestAsk ?? null;
-
-  const slip = checkSlippage({ livePrice: bestAsk, simDecisionPrice, slippageTolerancePct });
-  if (!slip.ok) {
-    const msg = `BUY ${side} skipped — ${slip.error} (sim=${simDecisionPrice} live=${slip.livePrice})`;
+  if (bestAsk == null) {
+    const msg = `BUY ${side} skipped — no bestAsk in book`;
     setStatusMessage(msg, 5000);
     logTrade(msg);
-    return { ok: false, error: slip.error };
+    return { ok: false, error: "no bestAsk" };
   }
 
   // Limit = bestAsk + takerBuffer. CLOB matches at any price ≤ limit, so a
-  // wider buffer just protects against tiny inter-tick book moves causing
-  // "no orders found to match" FAK kills; it does not increase the price we
-  // actually pay unless liquidity at bestAsk gets fully taken between snapshot
-  // and order processing. The slippage guard above already caps the worst
-  // realized fill, so the buffer can be generous.
+  // wider buffer just protects against inter-tick book moves causing "no
+  // orders found to match" FAK kills; it does not raise the price we actually
+  // pay unless liquidity at bestAsk gets fully taken between snapshot and
+  // order processing.
   const priceNum = clamp(bestAsk + takerBuffer, 0, 0.97);
   const tokenId = side === "UP" ? poly.tokens.upTokenId : poly.tokens.downTokenId;
 

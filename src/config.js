@@ -106,6 +106,15 @@ export const CONFIG = {
     // actually pay (CLOB still matches at the best available, capped by the
     // slippage guard above). Default 0.05 = 5¢.
     takerBuffer: Number(process.env.TRADE_TAKER_BUFFER ?? "0.05"),
+    // When true the bot skips the on-chain CTF.redeemPositions call after a
+    // market settles. Polymarket-managed wallets (POLY_PROXY, POLY_1271,
+    // POLY_GNOSIS_SAFE) hold the conditional tokens in their smart wallet,
+    // not in the EOA, so calling redeemPositions directly from the EOA
+    // redeems nothing AND burns POL on a no-op tx. Polymarket's own backend
+    // batch-redeems these wallets automatically — leaving redemption to them
+    // is the correct path for SIG_TYPE 1/2/3. Set to "false" only for pure
+    // EOA accounts (SIG_TYPE 0) that hold their own CT tokens.
+    disableAutoRedeem: (process.env.TRADE_DISABLE_AUTO_REDEEM ?? "true").toLowerCase() === "true",
   },
 
   chainlink: {

@@ -174,11 +174,14 @@ export async function fetchPositionBalance(client, tokenId) {
       asset_type: AssetType.CONDITIONAL,
       token_id: tokenId,
     });
-    // CLOB V2 returns `balance` as a decimal string already in human share
-    // units (e.g. "1.886791"). The V1 SDK reported raw 6-decimal integers
-    // and needed `/ 1e6` — that division was carried over by mistake and is
-    // now removed.
-    return Number(res?.balance ?? 0);
+    // CLOB V2's balance field can come back in either form depending on SDK
+    // version: human decimal string ("1.923075") or raw 6-decimal integer
+    // string ("1923075"). The CLOB itself reports the SELL mismatch as
+    // `balance: 1923075, order amount: 1923075000000` — that's raw on the
+    // server side and proves we received the raw form here. Use the presence
+    // of a decimal point as the discriminator so either format is handled.
+    const raw = String(res?.balance ?? "0");
+    return raw.includes(".") ? Number(raw) : Number(raw) / 1e6;
   } catch {
     return 0;
   }

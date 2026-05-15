@@ -188,7 +188,11 @@ async function main() {
       // worker waits ~30s for the UMA oracle to report payouts before its
       // first on-chain call, then retries with backoff if needed and skips
       // silently when the wallet holds no outcome tokens.
-      if (marketSlugNow && marketSlugNow !== prevMarketSlug && prevConditionId && trading.tradingEnabled) {
+      // Skipped entirely for Polymarket-managed wallets (default) — they auto-
+      // redeem on Polymarket's side; calling CTF directly from the EOA wastes
+      // POL on a no-op tx because tokens sit in the smart wallet.
+      const autoRedeemActive = trading.tradingEnabled && !CONFIG.trading.disableAutoRedeem;
+      if (marketSlugNow && marketSlugNow !== prevMarketSlug && prevConditionId && autoRedeemActive) {
         redemptionWorker.enqueue({
           conditionId: prevConditionId,
           slug: prevMarketSlug,
@@ -205,7 +209,7 @@ async function main() {
       prevMarketSlug = marketSlugNow || prevMarketSlug;
 
       // Each tick, give the redemption worker a chance to fire any due retries.
-      if (trading.tradingEnabled) {
+      if (autoRedeemActive) {
         redemptionWorker.processPending({ wallet: trading.wallet }).catch(() => {});
       }
 
@@ -497,7 +501,6 @@ async function main() {
               trading, poly,
               side: simResult.side,
               simDecisionPrice: simResult.decisionPrice,
-              slippageTolerancePct: CONFIG.trading.slippageTolerancePct,
               takerBuffer: CONFIG.trading.takerBuffer,
               marketSlug: simResult.marketSlug,
               botLabel: "5m",
