@@ -29,6 +29,118 @@ O comando lê `logs/dryrun_15m_trades.csv` e `logs/dryrun_5m_trades.csv` e impri
 ---
 
 
+## v13 — 2026-05-17
+
+**Ref:** `logs/cloud/polymarket-logs-selected-2026-05-17.zip` (primeira corrida real significativa: 196 trades 5m em ~70h entre 2026-05-14 14:20Z e 2026-05-17 12:45Z)
+**Foco:** corrigir o gap de execução de ~$22 entre real e dry-run e parar o overfitting do filtro de hora bloqueada.
+
+### Baseline da corrida real (antes desta mudança)
+
+| Métrica | REAL (196) | DRY mesma janela (249) | DRY aligned (198 mkts compartilhados) | REAL aligned (195 mkts) |
+|---|---|---|---|---|
+| Invest | $196 | $249 | — | — |
+| PnL | **−$8.36** | **+$13.57** | +$2.54 | −$7.36 |
+| ROI | −4.27% | +5.45% | — | — |
+| WR | 50.5% | 52.4% | 50.5% | 50.8% |
+
+WR praticamente igual ⇒ sinal do modelo OK. Gap de ~$22 = **execução**.
+
+### Cause-decomp do gap
+
+1. **Slippage de entrada — $4.83 perdidos**
+   - Real pagou avg **+1.27¢/trade** vs preço sim.
+   - 154/194 mkts: real entrou mais caro. Drag nos 96 wins = $4.83 perdidos (menos shares por $).
+   - Causa: `takerBuffer = 0.10` deixava FAK comer até +10¢ acima do sim. Em mercado [0.50–0.60], 10¢ ≈ meia banda.
+
+2. **51 mercados perdidos — $12.96 EV evaporada**
+   - Dry pegou, real pulou. Dry: 29W / 17L / 5 TP → +$12.96 a 63% WR.
+   - Causas:
+     - 49 skips por slippage>tolerância (15× a 2%, 34× a 5%)
+     - 23× `FAK_no_match` (compra)
+     - 10× `maker_not_allowed` (compra, só dia 14/05 — wallet config estabilizou depois)
+     - 8× falhas na venda (`balance_short` + `FAK_no_match`)
+
+3. **Fills fora da banda configurada — 23% dos trades**
+   - `entryMaxMarketPrice_5M = 0.52` mas 46/196 trades fecharam ≥ 0.54.
+   - Buffer largo + ausência de cap pós-limit deixou FAK preencher acima do entryMax. Limite teórico ignorado na prática.
+
+4. **Filtro de horário bloqueado provavelmente overfit**
+   - Análise combinada de 449 trades dry-run (cloud + arquivos locais) mostra **zero horas com p<0.05**. Todos os 95% CIs cruzam zero.
+   - Power analysis: detectar Δ=$0.30/trade com poder 0.8 e SD≈$0.95 precisa **n≈79 trades por hora**. Atual: 7–21/hora.
+   - Histórico thrasha: H19 e H20 estavam unblocked em runs antigos e geraram +$1.79 / +$5.00 (100% WR n=13/15). Estão bloqueadas hoje por noise de uma janela menor.
+
+### Changes
+
+- **`takerBuffer` default 0.10 → 0.05** (`src/config.js`). Mantém FAK vivo em jitter normal de book sem deixar slippage destruir a EV do sim. Override via `TRADE_TAKER_BUFFER`.
+- **Pre-flight cap `simDecisionPrice + takerBuffer ≤ entryMaxMarketPrice`** (`src/trading/executor.js — executeRealBuy`). Aborta BUY antes de postar a ordem se o limit ultrapassar a banda. Sim já contabiliza a entrada virtual; cancelar a perna real espelha o caminho do skip-por-slippage. Wired em `src/index.js` e `src/index5m.js` (novo parâmetro `entryMaxMarketPrice` na chamada).
+- **Post-fill warning** quando `avgFillPrice > entryMaxMarketPrice` (`executor.js`). Caso o pre-flight passe mas um partial fill atravesse múltiplos níveis de ask, registra a deriva no `trade_orders.log` (caso raro mas observável).
+- **15m `blockedHoursUtc`** `[0,8,9,11,17,18,19,21,22]` → **`[]`** (`src/config.js`).
+- **5m `blockedHoursUtc`** `[2,3,4,6,10,16,19,20]` → **`[]`** (`src/config5m.js`).
+  - Decisão: parar de cortar horas até termos volume estatístico mínimo (~80 trades/hora). Filtros de preço, regime e sinal continuam ativos — eles têm n por bucket muito maior e base mecânica clara. Override manual via env continua disponível.
+- **`CLAUDE.md`** atualizado para `TRADE_TAKER_BUFFER`, `TRADE_BLOCKED_HOURS_UTC`, `TRADE_BLOCKED_HOURS_UTC_5M`.
+
+### Parâmetros — 15m (defaults pós-v13)
+
+| Parâmetro | Valor | Mudança? |
+|---|---|---|
+| `tradeAmount` | $5 | — |
+| `takerBuffer` | **0.05** | ✱ |
+| `entryMinMarketPrice` | 0.50 | — |
+| `entryMaxMarketPrice` | 0.58 | — |
+| `slippageTolerancePct` | 0.02 | — |
+| `signalFlipMinProb` | 0.58 | — |
+| `stopLossMinProb` | 0.65 | — |
+| `stopLossMinDurationS` | 240 | — |
+| `flipCooldownS` | 60 | — |
+| `flipConfirmTicks` | 2 | — |
+| `disableSignalFlip` | true | — |
+| `disableStopLoss` | false | — |
+| `disableTimeDecay` | true | — |
+| `btcVsPtbMinAbsUsd` | 5 | — |
+| `blockedHoursUtc` | **[]** | ✱ |
+| `blockedRegimes` | [CHOP,RANGE] | — |
+
+### Parâmetros — 5m (defaults pós-v13)
+
+| Parâmetro | Valor | Mudança? |
+|---|---|---|
+| `tradeAmount` | $5 | — |
+| `takerBuffer` | **0.05** | ✱ |
+| `entryMinMarketPrice` | 0.50 | — |
+| `entryMaxMarketPrice` | 0.52 | — |
+| `slippageTolerancePct` | 0.02 | — |
+| `signalFlipMinProb` | 0.62 | — |
+| `disableStopLoss` | true | — |
+| `disableSignalFlip` | true | — |
+| `disableTimeDecay` | true | — |
+| `flipCooldownS` | 90 | — |
+| `flipConfirmTicks` | 5 | — |
+| `blockedHoursUtc` | **[]** | ✱ |
+
+### Impacto esperado vs v12
+
+| Mudança | Bot | Efeito projetado |
+|---|---|---|
+| takerBuffer 0.10→0.05 | ambos | Recupera ~$3 de drag por slippage em ~100 wins. Pode aumentar `FAK_no_match` em mercados com book esparso — trade-off aceito vs fill fora da banda. |
+| Pre-flight cap entryMax | ambos | Zera fills acima do `entryMaxMarketPrice` (eram 23% no run real). Esses 46 trades em [0.54+] no run real geraram +$1.38 líquido, então o ganho líquido é pequeno — mas a estratégia volta a respeitar o seu próprio gate, simplificando análise futura. |
+| blockedHoursUtc → [] | ambos | Aumenta volume de trades (~30% mais entradas no 5m). Sem corte estatisticamente injustificado. Permite acumular n suficiente pra próxima análise validar (ou rejeitar) hour-edges. |
+
+### Não mudado (mas investigar depois)
+
+- **Bias UP −$8.52 vs DOWN +$0.16** no 5m (n=101/95). Pode ser microstructure ou viés do scoreDirection5m. Precisa amostra maior; com volume novo de v13, refazer breakdown side×price-bucket em ~1 semana.
+- **`FAK_no_match` (23×)**: book real ficou atrás do sim entre tick e order-send. Alternativas: GTC com TTL curto + cancel, ou retry com bump único. Não mexido — mudança arquitetural maior.
+
+### Critério de validação
+
+Próximo ciclo precisa coletar **≥ 300 trades reais** antes de qualquer novo ajuste de filtro temporal. Métrica de sucesso primária:
+- Gap de PnL real vs dry aligned ≤ $5 absoluto.
+- Zero entradas com fill > `entryMaxMarketPrice`.
+- Slippage média real-vs-sim ≤ 0.5¢.
+
+Se WR continuar em ~50% mas o gap fechar, o sinal é insuficiente e precisamos repensar `scoreDirection5m`. Se WR subir com gap fechado, execução era o gargalo dominante.
+
+---
+
 ## v12 — 2026-05-04
 
 ### Changes

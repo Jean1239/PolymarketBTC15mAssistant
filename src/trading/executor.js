@@ -88,7 +88,7 @@ function checkSlippage({ livePrice, simDecisionPrice, slippageTolerancePct }) {
  *
  * @returns {Promise<{ok: true, executedPrice: number, shares: number} | {ok: false, error: string}>}
  */
-export async function executeRealBuy({ trading, poly, side, simDecisionPrice, takerBuffer = 0.05, marketSlug, botLabel = "bot", onTrade = null }) {
+export async function executeRealBuy({ trading, poly, side, simDecisionPrice, takerBuffer = 0.05, entryMaxMarketPrice = null, marketSlug, botLabel = "bot", onTrade = null }) {
   if (!trading.tradingEnabled || !poly.ok) {
     return { ok: false, error: "trading disabled or poly snapshot not ok" };
   }
@@ -113,6 +113,19 @@ export async function executeRealBuy({ trading, poly, side, simDecisionPrice, ta
   // ≤ limit, so a normal book at simDecisionPrice fills at that price.
   const priceNum = clamp(simDecisionPrice + takerBuffer, 0, 0.97);
   const tokenId = side === "UP" ? poly.tokens.upTokenId : poly.tokens.downTokenId;
+
+  // Pre-flight price-band cap. The sim approved entry at simDecisionPrice,
+  // which sits inside [entryMin, entryMax], but the FAK limit is
+  // simDecisionPrice + takerBuffer. If the limit itself exceeds entryMax the
+  // order could fill above the configured band, defeating the price filter.
+  // Skip outright — the sim already booked a virtual entry at simDecisionPrice,
+  // so dropping the real leg simply mirrors the slippage-skip behaviour.
+  if (entryMaxMarketPrice != null && priceNum > entryMaxMarketPrice) {
+    const msg = `BUY ${side} skipped — limit ${(priceNum * 100).toFixed(1)}¢ > entryMax ${(entryMaxMarketPrice * 100).toFixed(1)}¢ (sim=${(simDecisionPrice * 100).toFixed(1)}¢ + buf ${(takerBuffer * 100).toFixed(1)}¢)`;
+    setStatusMessage(msg, 5000);
+    logTrade(msg);
+    return { ok: false, error: "limit above entryMax" };
+  }
 
   setStatusMessage(`Comprando ${side} (sim)...`);
   logTrade(`BUY ${side} attempting limit=${(priceNum * 100).toFixed(1)}¢ (sim=${(simDecisionPrice * 100).toFixed(1)}¢ live=${(bestAsk * 100).toFixed(1)}¢) $${trading.tradeAmount}`);
@@ -151,6 +164,13 @@ export async function executeRealBuy({ trading, poly, side, simDecisionPrice, ta
   const partialTag = Math.abs(investedActual - trading.tradeAmount) > 0.01 ? ` [PARTIAL: $${investedActual.toFixed(2)}/$${trading.tradeAmount}]` : "";
   setStatusMessage(`COMPROU ${side} @ ${(entryPrice * 100).toFixed(1)}¢ | $${investedActual.toFixed(2)}${partialTag} | shares: ${shares.toFixed(2)} | ID: ${String(orderId).slice(0, 12)}`, 8000);
   logTrade(`BUY ${side} filled avgPrice=${entryPrice.toFixed(4)} collateral=${investedActual.toFixed(4)} shares=${shares.toFixed(4)} status=${fill.status} orderId=${orderId}`);
+  // Belt-and-suspenders: the pre-flight cap above already prevents posting a
+  // limit > entryMax, but a partial fill could still report an avgFillPrice
+  // outside the band (e.g. if the order matched across multiple ask levels
+  // before the kill). Surface that drift so it's not silent in the log.
+  if (entryMaxMarketPrice != null && entryPrice > entryMaxMarketPrice) {
+    logTrade(`BUY ${side} fill above band — avgPrice=${(entryPrice * 100).toFixed(1)}¢ > entryMax ${(entryMaxMarketPrice * 100).toFixed(1)}¢`);
+  }
   notifyTrade({ bot: botLabel, isLive: true, action: "BUY", side, market: marketSlug, entryPrice, invested: investedActual });
 
   onTrade?.({

@@ -55,14 +55,20 @@ export const CONFIG = {
     entryMinMarketPrice: Number(process.env.TRADE_ENTRY_MIN_PRICE_5M || "0.50"),
     // Lowered from 0.60: dry-run shows entries >= 0.52 are net-losers (-$11.44 vs +$9.86 below).
     entryMaxMarketPrice: Number(process.env.TRADE_ENTRY_MAX_PRICE_5M || "0.52"),
-    // Hours (UTC) during which new entries are blocked. Overrides 15m list.
-    // Updated from v11 analysis (30-Apr to 04-May, 592 trades):
-    // Released H21 (+$10.49 in 23 trades — was the single best hour, erroneously blocked).
-    // Added H04 (-$8.43 in 34 trades — worst unblocked hour).
-    // Retained H02, H03, H06, H10, H16, H19, H20 from v11 analysis.
+    // Hours (UTC) during which new entries are blocked.
+    //
+    // Default emptied 2026-05-17: combined 449-trade dry-run sample shows
+    // zero hour reaches statistical significance (every 95% CI crosses 0).
+    // Hour list had been thrashing across analyses — H19/H20 were unblocked
+    // and positive in older runs but flipped negative on small windows.
+    // Sample-size math: detecting a $0.30/trade deviation at power 0.8 needs
+    // ~79 trades per hour; current per-hour samples sit at 7–21. Until we
+    // have ≥80 trades/hour we cannot tell a "bad hour" from noise, so block
+    // nothing and let the price/regime/signal filters do the gating. Override
+    // with TRADE_BLOCKED_HOURS_UTC_5M to re-enable manually.
     blockedHoursUtc: process.env.TRADE_BLOCKED_HOURS_UTC_5M
       ? process.env.TRADE_BLOCKED_HOURS_UTC_5M.split(",").map(Number)
-      : [2, 3, 4, 6, 10, 16, 19, 20],
+      : [],
     // Tighter TIME_DECAY on 5m: require ≥15% loss before cutting (vs 5% on 15m),
     // and fire earlier (2.5 min left vs 1.5 min). Cuts clearly-lost positions
     // sooner but avoids trimming the small recoveries seen near settlement.

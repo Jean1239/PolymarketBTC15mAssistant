@@ -81,15 +81,19 @@ export const CONFIG = {
     blockedRegimes: process.env.TRADE_BLOCKED_REGIMES
       ? process.env.TRADE_BLOCKED_REGIMES.split(",").map(s => s.trim().toUpperCase())
       : ["CHOP", "RANGE"],
-    // Hours (UTC) during which new entries are blocked. Derived from dry-run analysis
-    // (v11, 30-Apr to 04-May, 291 trades):
-    // Released H02 (+$1.81) and H04 (+$2.32) — positive in this period.
-    // Added H09 (-$6.75), H19 (-$7.36), H22 (-$4.27) — consistently negative.
-    // Retained H00, H08, H11, H17, H18, H21 from v11 analysis.
-    // Override with TRADE_BLOCKED_HOURS_UTC as a comma-separated list (e.g. "0,9,19").
+    // Hours (UTC) during which new entries are blocked.
+    //
+    // Default emptied 2026-05-17 (mirrors 5m decision): per-hour sample
+    // sizes (n≈10–30) are too small to distinguish bad hours from noise.
+    // Power analysis: detecting a $0.30/trade deviation with power 0.8
+    // requires ~79 trades/hour. Hour list had been thrashing across analyses,
+    // flipping the same hours between "good" and "bad" purely on small-window
+    // variance. Empty list lets the price/regime/signal filters drive
+    // selection and increases sample volume needed to validate hour-level
+    // edges. Override with TRADE_BLOCKED_HOURS_UTC to re-enable manually.
     blockedHoursUtc: process.env.TRADE_BLOCKED_HOURS_UTC
       ? process.env.TRADE_BLOCKED_HOURS_UTC.split(",").map(Number)
-      : [0, 8, 9, 11, 17, 18, 19, 21, 22],
+      : [],
     // Sole gate for real-money trading. Default false = paper/simulated mode.
     // Real orders fire iff POLYMARKET_LIVE_TRADING=true AND POLYMARKET_PRIVATE_KEY
     // is set. Replaces the previous (DRY_RUN, POLYMARKET_LIVE_TRADING) pair.
@@ -106,8 +110,14 @@ export const CONFIG = {
     // sim signed off on — beyond that the FAK correctly kills because filling
     // would be -EV at the model's probability. CLOB still matches at the
     // lowest available ask ≤ limit, so a normal book fills at simDecisionPrice
-    // or better. Default 0.10 = 10¢.
-    takerBuffer: Number(process.env.TRADE_TAKER_BUFFER ?? "0.10"),
+    // or better.
+    //
+    // Default lowered from 0.10 → 0.05 after 196-trade real run (2026-05-14 →
+    // 2026-05-17) showed avg +1.27¢ entry slippage vs sim, with 23% of real
+    // fills landing above `entryMaxMarketPrice` because the 10¢ cap spanned
+    // most of the 0.50–0.60 entry band. 5¢ keeps the FAK alive on normal book
+    // jitter while keeping fills inside the configured price band.
+    takerBuffer: Number(process.env.TRADE_TAKER_BUFFER ?? "0.05"),
     // When true the bot skips the on-chain CTF.redeemPositions call after a
     // market settles. Polymarket-managed wallets (POLY_PROXY, POLY_1271,
     // POLY_GNOSIS_SAFE) hold the conditional tokens in their smart wallet,

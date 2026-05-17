@@ -444,6 +444,7 @@ async function main() {
               side: simResult.side,
               simDecisionPrice: simResult.decisionPrice,
               takerBuffer: CONFIG.trading.takerBuffer,
+              entryMaxMarketPrice: CONFIG.trading.entryMaxMarketPrice,
               marketSlug: simResult.marketSlug,
               botLabel: "15m",
               onTrade: ({ entryPrice, invested, shares, timestamp }) => {
