@@ -126,6 +126,94 @@ function listLogFiles() {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// Reads the last `lines` lines of a file by tailing from EOF in 16 KB chunks.
+// Memory bounded — never loads the full file even if it's 100 MB.
+function tailFile(filepath, lines) {
+  if (!existsSync(filepath)) return null;
+  const st = statSync(filepath);
+  if (st.isDirectory()) return null;
+  const totalSize = st.size;
+  if (totalSize === 0) return { lines: [], totalSize, truncated: false };
+
+  const CHUNK = 16 * 1024;
+  const wanted = Math.max(1, Math.min(lines, 5000));
+  let fd;
+  try {
+    fd = openSync(filepath, "r");
+    let pos = totalSize;
+    let collected = "";
+    let newlines = 0;
+    while (pos > 0 && newlines <= wanted) {
+      const readSize = Math.min(CHUNK, pos);
+      pos -= readSize;
+      const buf = Buffer.alloc(readSize);
+      readSync(fd, buf, 0, readSize, pos);
+      const chunk = buf.toString("utf8");
+      collected = chunk + collected;
+      newlines = (collected.match(/\n/g) ?? []).length;
+    }
+    const all = collected.split("\n");
+    if (all.length && all[all.length - 1] === "") all.pop();
+    const truncated = all.length > wanted || pos > 0;
+    const tail = all.slice(-wanted);
+    return { lines: tail, totalSize, truncated };
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
+// Returns whether the 15m / 5m bot is currently writing ticks.
+// A bot is "active" when its tick CSV (dryrun_{15m,5m}.csv) was modified
+// within the last `staleSeconds` window. 60s is generous (poll is 1s) so
+// brief stalls don't blink the UI off.
+function getBotStatus(staleSeconds = 60) {
+  const result = {};
+  for (const tf of ["15m", "5m"]) {
+    const fp = path.join(LOGS_DIR, `dryrun_${tf}.csv`);
+    if (!existsSync(fp)) {
+      result[tf] = { active: false, lastTickAgoS: null, exists: false };
+      continue;
+    }
+    const st = statSync(fp);
+    const ageS = Math.round((Date.now() - st.mtime.getTime()) / 1000);
+    result[tf] = { active: ageS <= staleSeconds, lastTickAgoS: ageS, exists: true };
+  }
+  return result;
+}
+
+// Parses "ISO_TIMESTAMP rest..." log lines into {timestamp, message}.
+const LOG_LINE_RE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s+(.*)$/;
+
+function parseTradeEventLines(lines, type) {
+  const out = [];
+  for (const raw of lines) {
+    const line = raw.replace(/\r$/, "");
+    if (!line) continue;
+    const m = LOG_LINE_RE.exec(line);
+    if (m) out.push({ timestamp: m[1], type, message: m[2] });
+    else out.push({ timestamp: null, type, message: line });
+  }
+  return out;
+}
+
+function getTradeEvents(limit) {
+  const want = Math.max(1, Math.min(limit, 200));
+  // Pull more than `want` from each file so the merge has enough to interleave.
+  const perFile = want * 2;
+  const orders = tailFile(path.join(LOGS_DIR, "trade_orders.log"), perFile);
+  const errors = tailFile(path.join(LOGS_DIR, "trade_errors.log"), perFile);
+  const events = [
+    ...(orders ? parseTradeEventLines(orders.lines, "order") : []),
+    ...(errors ? parseTradeEventLines(errors.lines, "error") : []),
+  ];
+  events.sort((a, b) => {
+    const ta = a.timestamp ?? "";
+    const tb = b.timestamp ?? "";
+    return tb.localeCompare(ta); // newest first
+  });
+  return events.slice(0, want);
+}
+
 // ── CSV parsing ──────────────────────────────────────────────────────────────
 
 function parseCsv(filepath) {
@@ -470,6 +558,29 @@ const server = http.createServer(async (req, res) => {
 
     if (p === "/api/files") {
       return json(res, listLogFiles());
+    }
+
+    if (p === "/api/files/tail") {
+      const name = url.searchParams.get("name") ?? "";
+      if (!name || name.includes("/") || name.includes("\\") || name.startsWith(".")) {
+        res.writeHead(400); res.end("Invalid filename"); return;
+      }
+      const linesParam = parseInt(url.searchParams.get("lines") ?? "50", 10);
+      const lines = Number.isFinite(linesParam) && linesParam > 0 ? linesParam : 50;
+      const fp = path.join(LOGS_DIR, name);
+      const result = tailFile(fp, lines);
+      if (!result) { res.writeHead(404); res.end("Not found"); return; }
+      return json(res, { name, lines: result.lines, totalSize: result.totalSize, truncated: result.truncated });
+    }
+
+    if (p === "/api/bots/status") {
+      return json(res, getBotStatus());
+    }
+
+    if (p === "/api/trade-events") {
+      const limitParam = parseInt(url.searchParams.get("limit") ?? "5", 10);
+      const limit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 5;
+      return json(res, getTradeEvents(limit));
     }
 
     if (p === "/api/files/download") {

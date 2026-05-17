@@ -122,6 +122,12 @@ function TradesTable({ trades }: { trades: Trade[] }) {
 function TradesPage() {
   const q15 = useQuery({ queryKey: ["trades-15m"], queryFn: api.trades15m, refetchInterval: 30_000 })
   const q5 = useQuery({ queryKey: ["trades-5m"], queryFn: api.trades5m, refetchInterval: 30_000 })
+  const { data: bots } = useQuery({ queryKey: ["botsStatus"], queryFn: api.botsStatus, refetchInterval: 15_000 })
+
+  const show15 = bots ? bots["15m"].active : true
+  const show5 = bots ? bots["5m"].active : true
+  const visible = [show15 && "15m", show5 && "5m"].filter(Boolean) as ("15m" | "5m")[]
+  const defaultTab = visible[0] ?? "15m"
 
   return (
     <div className="p-4 md:p-6 space-y-4">
@@ -130,19 +136,27 @@ function TradesPage() {
         <h1 className="text-lg font-semibold">Trade History</h1>
       </div>
 
-      <Tabs defaultValue="15m">
-        <TabsList>
-          <TabsTrigger value="15m">15-minute bot</TabsTrigger>
-          <TabsTrigger value="5m">5-minute bot</TabsTrigger>
-        </TabsList>
+      {visible.length === 0 ? (
+        <p className="text-muted-foreground text-sm">Nenhum bot ativo no momento.</p>
+      ) : (
+        <Tabs defaultValue={defaultTab}>
+          <TabsList>
+            {show15 && <TabsTrigger value="15m">15-minute bot</TabsTrigger>}
+            {show5 && <TabsTrigger value="5m">5-minute bot</TabsTrigger>}
+          </TabsList>
 
-        <TabsContent value="15m" className="mt-4">
-          {q15.isLoading ? <p className="text-muted-foreground">Loading…</p> : <TradesTable trades={q15.data ?? []} />}
-        </TabsContent>
-        <TabsContent value="5m" className="mt-4">
-          {q5.isLoading ? <p className="text-muted-foreground">Loading…</p> : <TradesTable trades={q5.data ?? []} />}
-        </TabsContent>
-      </Tabs>
+          {show15 && (
+            <TabsContent value="15m" className="mt-4">
+              {q15.isLoading ? <p className="text-muted-foreground">Loading…</p> : <TradesTable trades={q15.data ?? []} />}
+            </TabsContent>
+          )}
+          {show5 && (
+            <TabsContent value="5m" className="mt-4">
+              {q5.isLoading ? <p className="text-muted-foreground">Loading…</p> : <TradesTable trades={q5.data ?? []} />}
+            </TabsContent>
+          )}
+        </Tabs>
+      )}
     </div>
   )
 }

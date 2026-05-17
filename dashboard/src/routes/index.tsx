@@ -7,6 +7,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/
 import { Area, CartesianGrid, ComposedChart, XAxis, YAxis, Bar, BarChart, Cell, Line } from "recharts"
 import { api, type BotStats } from "@/lib/api"
 import { ClearLogsButton } from "@/components/clear-logs-button"
+import { TradeEventsCard } from "@/components/trade-events-card"
 
 export const Route = createFileRoute("/")({
   component: OverviewPage,
@@ -176,8 +177,19 @@ function OverviewPage() {
     refetchInterval: 30_000,
   })
 
+  const { data: bots } = useQuery({
+    queryKey: ["botsStatus"],
+    queryFn: api.botsStatus,
+    refetchInterval: 15_000,
+  })
+
   if (isLoading) return <div className="flex items-center justify-center h-full text-muted-foreground p-8">Loading…</div>
   if (error || !data) return <div className="p-8 text-red-500">Failed to load stats.</div>
+
+  const show15 = bots ? bots["15m"].active : true
+  const show5 = bots ? bots["5m"].active : true
+  const visible = [show15 && "15m", show5 && "5m"].filter(Boolean) as ("15m" | "5m")[]
+  const defaultTab = visible[0] ?? "15m"
 
   return (
     <div className="p-4 md:p-6 space-y-6">
@@ -190,18 +202,28 @@ function OverviewPage() {
         <ClearLogsButton />
       </div>
 
-      <Tabs defaultValue="15m">
-        <TabsList>
-          <TabsTrigger value="15m">15-minute bot</TabsTrigger>
-          <TabsTrigger value="5m">5-minute bot</TabsTrigger>
-        </TabsList>
-        <TabsContent value="15m" className="mt-4">
-          <BotOverview stats={data["15m"]} label="15m" />
-        </TabsContent>
-        <TabsContent value="5m" className="mt-4">
-          <BotOverview stats={data["5m"]} label="5m" />
-        </TabsContent>
-      </Tabs>
+      <TradeEventsCard />
+
+      {visible.length === 0 ? (
+        <Card><CardContent className="p-6 text-muted-foreground text-sm">Nenhum bot ativo no momento.</CardContent></Card>
+      ) : (
+        <Tabs defaultValue={defaultTab}>
+          <TabsList>
+            {show15 && <TabsTrigger value="15m">15-minute bot</TabsTrigger>}
+            {show5 && <TabsTrigger value="5m">5-minute bot</TabsTrigger>}
+          </TabsList>
+          {show15 && (
+            <TabsContent value="15m" className="mt-4">
+              <BotOverview stats={data["15m"]} label="15m" />
+            </TabsContent>
+          )}
+          {show5 && (
+            <TabsContent value="5m" className="mt-4">
+              <BotOverview stats={data["5m"]} label="5m" />
+            </TabsContent>
+          )}
+        </Tabs>
+      )}
     </div>
   )
 }

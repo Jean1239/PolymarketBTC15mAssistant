@@ -134,6 +134,27 @@ export interface LogFile {
   modified: string
 }
 
+export interface FileTail {
+  name: string
+  lines: string[]
+  totalSize: number
+  truncated: boolean
+}
+
+export interface BotStatus {
+  active: boolean
+  lastTickAgoS: number | null
+  exists: boolean
+}
+
+export type BotsStatusResponse = Record<"15m" | "5m", BotStatus>
+
+export interface TradeEvent {
+  timestamp: string | null
+  type: "order" | "error"
+  message: string
+}
+
 function maybeRedirectToLogin(status: number) {
   if (status === 401 && typeof window !== "undefined" && window.location.pathname !== "/login") {
     window.location.href = "/login"
@@ -161,6 +182,10 @@ export const api = {
   trades5m: () => get<Trade[]>("/api/trades/5m"),
   live: () => get<LiveResponse>("/api/live"),
   files: () => get<LogFile[]>("/api/files"),
+  fileTail: (name: string, lines: number) =>
+    get<FileTail>(`/api/files/tail?name=${encodeURIComponent(name)}&lines=${lines}`),
+  botsStatus: () => get<BotsStatusResponse>("/api/bots/status"),
+  tradeEvents: (limit = 5) => get<TradeEvent[]>(`/api/trade-events?limit=${limit}`),
   clearLogs: () =>
     fetch("/api/logs/clear", { method: "POST" }).then((r) => {
       if (!r.ok) {

@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { api, type Signal15m, type Signal5m } from "@/lib/api"
+import { TradeEventsCard } from "@/components/trade-events-card"
 
 export const Route = createFileRoute("/signals")({
   component: SignalsPage,
@@ -240,6 +241,12 @@ function SignalsPage() {
     refetchInterval: 2_000,
   })
 
+  const { data: bots } = useQuery({
+    queryKey: ["botsStatus"],
+    queryFn: api.botsStatus,
+    refetchInterval: 15_000,
+  })
+
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000)
@@ -250,6 +257,10 @@ function SignalsPage() {
     ? new Date(dataUpdatedAt).toLocaleTimeString("pt-BR")
     : null
 
+  const show15 = bots ? bots["15m"].active : true
+  const show5 = bots ? bots["5m"].active : true
+  const anyVisible = show15 || show5
+
   return (
     <div className="p-4 md:p-6 space-y-6">
       <div className="flex items-center gap-2 flex-wrap">
@@ -258,12 +269,18 @@ function SignalsPage() {
         {lastUpdate && <span className="text-xs text-muted-foreground">atualizado {lastUpdate}</span>}
       </div>
 
+      <TradeEventsCard refreshMs={2_000} />
+
       {isLoading && <p className="text-muted-foreground text-sm">Conectando…</p>}
 
-      {data && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {data["15m"] ? <Signal15mCard s={data["15m"]} now={now} /> : <Card><CardContent className="p-6 text-muted-foreground text-sm">15m bot offline</CardContent></Card>}
-          {data["5m"] ? <Signal5mCard s={data["5m"]} now={now} /> : <Card><CardContent className="p-6 text-muted-foreground text-sm">5m bot offline</CardContent></Card>}
+      {!anyVisible && bots && (
+        <Card><CardContent className="p-6 text-muted-foreground text-sm">Nenhum bot ativo no momento.</CardContent></Card>
+      )}
+
+      {data && anyVisible && (
+        <div className={`grid grid-cols-1 gap-6 ${show15 && show5 ? "lg:grid-cols-2" : ""}`}>
+          {show15 && (data["15m"] ? <Signal15mCard s={data["15m"]} now={now} /> : <Card><CardContent className="p-6 text-muted-foreground text-sm">15m bot offline</CardContent></Card>)}
+          {show5 && (data["5m"] ? <Signal5mCard s={data["5m"]} now={now} /> : <Card><CardContent className="p-6 text-muted-foreground text-sm">5m bot offline</CardContent></Card>)}
         </div>
       )}
     </div>

@@ -1,12 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
 import { useState, useCallback, useRef, useEffect } from "react"
-import { Download, FolderArchive, FileSpreadsheet, FileJson, FileText, AlertCircle, Package } from "lucide-react"
+import { Download, FolderArchive, FileSpreadsheet, FileJson, FileText, AlertCircle, Package, Eye } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ClearLogsButton } from "@/components/clear-logs-button"
+import { LogViewer } from "@/components/log-viewer"
 import { api, type LogFile } from "@/lib/api"
 
 export const Route = createFileRoute("/files")({
@@ -58,16 +59,18 @@ function FileRow({
   file,
   selected,
   onToggle,
+  onView,
 }: {
   file: LogFile
   selected: boolean
   onToggle: (name: string) => void
+  onView: (name: string) => void
 }) {
   const tooLarge = file.size > ZIP_MAX_BYTES
   return (
     <tr
       className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
-      onClick={() => onToggle(file.name)}
+      onClick={() => onView(file.name)}
     >
       <td className="py-3 px-4 w-10" onClick={(e) => e.stopPropagation()}>
         <Checkbox
@@ -92,12 +95,21 @@ function FileRow({
       <td className="py-3 px-4 text-right text-muted-foreground text-xs whitespace-nowrap hidden sm:table-cell">
         {new Date(file.modified).toLocaleString("pt-BR")}
       </td>
-      <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
+      <td className="py-3 px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0"
+          onClick={() => onView(file.name)}
+          title="Visualizar últimas linhas"
+        >
+          <Eye className="h-3.5 w-3.5" />
+        </Button>
         <a
           href={`/api/files/download?name=${encodeURIComponent(file.name)}`}
           download={file.name}
         >
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Baixar arquivo">
             <Download className="h-3.5 w-3.5" />
           </Button>
         </a>
@@ -115,6 +127,7 @@ function FilesPage() {
 
   const [selectedNames, setSelectedNames] = useState<string[]>([])
   const [downloading, setDownloading] = useState(false)
+  const [viewerName, setViewerName] = useState<string | null>(null)
 
   const toggleFile = useCallback((name: string) => {
     setSelectedNames((prev) =>
@@ -217,6 +230,12 @@ function FilesPage() {
         <p className="text-muted-foreground text-sm p-4">Nenhum arquivo encontrado na pasta de logs.</p>
       )}
 
+      <LogViewer
+        name={viewerName}
+        open={viewerName !== null}
+        onOpenChange={(open) => { if (!open) setViewerName(null) }}
+      />
+
       {data && data.length > 0 && (
         <Card>
           <CardContent className="p-0">
@@ -244,6 +263,7 @@ function FilesPage() {
                       file={file}
                       selected={selectedNames.includes(file.name)}
                       onToggle={toggleFile}
+                      onView={setViewerName}
                     />
                   ))}
                 </tbody>
