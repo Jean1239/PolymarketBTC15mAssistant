@@ -7,6 +7,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Button } from "@/components/ui/button"
 import { Toaster } from "@/components/ui/sonner"
 import { authClient, useSession } from "@/lib/auth-client"
+import { SelectedBotProvider } from "@/lib/selected-bot"
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -96,6 +97,7 @@ function RootLayout() {
   }
 
   return (
+    <SelectedBotProvider>
     <div className="dark min-h-screen bg-background text-foreground flex flex-col md:flex-row">
       {/* Mobile top bar */}
       <header className="md:hidden flex items-center gap-3 px-4 py-3 border-b border-border shrink-0">
@@ -150,5 +152,6 @@ function RootLayout() {
       {import.meta.env.DEV && <TanStackRouterDevtools />}
       <Toaster position="bottom-right" />
     </div>
+    </SelectedBotProvider>
   )
 }

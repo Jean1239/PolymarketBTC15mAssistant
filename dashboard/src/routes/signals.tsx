@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { api, type Signal15m, type Signal5m } from "@/lib/api"
 import { TradeEventsCard } from "@/components/trade-events-card"
+import { useSelectedBot } from "@/lib/selected-bot"
 
 export const Route = createFileRoute("/signals")({
   component: SignalsPage,
@@ -241,11 +242,7 @@ function SignalsPage() {
     refetchInterval: 2_000,
   })
 
-  const { data: bots } = useQuery({
-    queryKey: ["botsStatus"],
-    queryFn: api.botsStatus,
-    refetchInterval: 15_000,
-  })
+  const { visibleBots } = useSelectedBot()
 
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
@@ -257,8 +254,8 @@ function SignalsPage() {
     ? new Date(dataUpdatedAt).toLocaleTimeString("pt-BR")
     : null
 
-  const show15 = bots ? bots["15m"].active : true
-  const show5 = bots ? bots["5m"].active : true
+  const show15 = visibleBots.includes("15m")
+  const show5 = visibleBots.includes("5m")
   const anyVisible = show15 || show5
 
   return (
@@ -273,7 +270,7 @@ function SignalsPage() {
 
       {isLoading && <p className="text-muted-foreground text-sm">Conectando…</p>}
 
-      {!anyVisible && bots && (
+      {!anyVisible && (
         <Card><CardContent className="p-6 text-muted-foreground text-sm">Nenhum bot ativo no momento.</CardContent></Card>
       )}
 
