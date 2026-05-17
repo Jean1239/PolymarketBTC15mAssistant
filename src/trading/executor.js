@@ -114,17 +114,20 @@ export async function executeRealBuy({ trading, poly, side, simDecisionPrice, ta
   const priceNum = clamp(simDecisionPrice + takerBuffer, 0, 0.97);
   const tokenId = side === "UP" ? poly.tokens.upTokenId : poly.tokens.downTokenId;
 
-  // Pre-flight price-band cap. The sim approved entry at simDecisionPrice,
-  // which sits inside [entryMin, entryMax], but the FAK limit is
-  // simDecisionPrice + takerBuffer. If the limit itself exceeds entryMax the
-  // order could fill above the configured band, defeating the price filter.
-  // Skip outright — the sim already booked a virtual entry at simDecisionPrice,
-  // so dropping the real leg simply mirrors the slippage-skip behaviour.
-  if (entryMaxMarketPrice != null && priceNum > entryMaxMarketPrice) {
-    const msg = `BUY ${side} skipped — limit ${(priceNum * 100).toFixed(1)}¢ > entryMax ${(entryMaxMarketPrice * 100).toFixed(1)}¢ (sim=${(simDecisionPrice * 100).toFixed(1)}¢ + buf ${(takerBuffer * 100).toFixed(1)}¢)`;
+  // Pre-flight price-band cap. The sim approved entry only when simDecisionPrice
+  // sits inside [entryMin, entryMax]; if our local view of that price somehow
+  // exceeds entryMax (sim/exec drift, stale snapshot, etc.) abort. We compare
+  // simDecisionPrice itself rather than the limit — the buffer is a slippage
+  // tolerance for the FAK to find a fill if the book ran a few cents, not part
+  // of the entry band. With entryMax 0.52 + buffer 0.05 the previous check
+  // (limit > entryMax) made every 5m signal unreachable. CLOB still matches at
+  // the lowest ask ≤ limit, so a normal book fills at simDecisionPrice; partial
+  // fills above the band remain logged below as belt-and-suspenders.
+  if (entryMaxMarketPrice != null && simDecisionPrice > entryMaxMarketPrice) {
+    const msg = `BUY ${side} skipped — sim ${(simDecisionPrice * 100).toFixed(1)}¢ > entryMax ${(entryMaxMarketPrice * 100).toFixed(1)}¢`;
     setStatusMessage(msg, 5000);
     logTrade(msg);
-    return { ok: false, error: "limit above entryMax" };
+    return { ok: false, error: "sim above entryMax" };
   }
 
   setStatusMessage(`Comprando ${side} (sim)...`);
