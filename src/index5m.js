@@ -354,6 +354,7 @@ async function main() {
         flipConfirmTicks: CONFIG.trading.flipConfirmTicks,
         btcPrice: currentPrice, priceToBeat,
         ptbSafeMarginUsd: CONFIG.trading.ptbSafeMarginUsd,
+        disableTakeProfit: CONFIG.trading.disableTakeProfit ?? true,
         disableStopLoss: CONFIG.trading.disableStopLoss ?? false,
         disableSignalFlip: CONFIG.trading.disableSignalFlip ?? false,
         disableTimeDecay: CONFIG.trading.disableTimeDecay ?? true,

@@ -116,7 +116,7 @@ function evaluateSimExit({ pos, modelUp, modelDown, currentMarketPrice, timeLeft
   const slAgedEnough = positionAgeS >= (config.stopLossMinDurationS ?? 0);
 
   // Take profit — only if model also confirms reversal
-  if (roiPct >= config.takeProfitPct && modelConfirmsReversal) {
+  if (!config.disableTakeProfit && roiPct >= config.takeProfitPct && modelConfirmsReversal) {
     return { shouldSell: true, reason: "TAKE_PROFIT", roiPct };
   }
 
@@ -516,6 +516,7 @@ export function createDryRunSimulator15m(csvPath, tradingConfig = {}) {
     stopLossMinDurationS: tradingConfig.stopLossMinDurationS ?? 240,
     flipCooldownS: tradingConfig.flipCooldownS ?? 60,
     flipConfirmTicks: tradingConfig.flipConfirmTicks ?? 2,
+    disableTakeProfit: tradingConfig.disableTakeProfit ?? false,
     disableSignalFlip: tradingConfig.disableSignalFlip ?? true,
     disableStopLoss: tradingConfig.disableStopLoss ?? false,
     disableTimeDecay: tradingConfig.disableTimeDecay ?? true,
@@ -549,6 +550,7 @@ export function createDryRunSimulator5m(csvPath, tradingConfig = {}) {
     stopLossMinDurationS: tradingConfig.stopLossMinDurationS ?? 120,
     flipCooldownS: tradingConfig.flipCooldownS ?? 90,
     flipConfirmTicks: tradingConfig.flipConfirmTicks ?? 5,
+    disableTakeProfit: tradingConfig.disableTakeProfit ?? true,
     disableSignalFlip: tradingConfig.disableSignalFlip ?? true,
     disableStopLoss: tradingConfig.disableStopLoss ?? true,
     disableTimeDecay: tradingConfig.disableTimeDecay ?? true,

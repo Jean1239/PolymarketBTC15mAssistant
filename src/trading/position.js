@@ -110,7 +110,7 @@ export function resetIfMarketChanged(currentSlug) {
 
 // Avalia se a posição aberta deve ser encerrada.
 // Retorna { shouldSell, reason, urgency } onde urgency é "HIGH" | "MEDIUM" | null
-export function evaluateExit({ position, modelUp, modelDown, currentMarketPrice, timeLeftMin, takeProfitPct, stopLossPct, signalFlipMinProb, stopLossMinProb = null, stopLossMinDurationS = 0, flipConfirmCount = 0, flipConfirmTicks = 1, btcPrice = null, priceToBeat = null, ptbSafeMarginUsd = 30, disableStopLoss = false, disableSignalFlip = false, disableTimeDecay = false, timeDecayMinLeftMin = 1.5, timeDecayMinLossPct = 5 }) {
+export function evaluateExit({ position, modelUp, modelDown, currentMarketPrice, timeLeftMin, takeProfitPct, stopLossPct, signalFlipMinProb, stopLossMinProb = null, stopLossMinDurationS = 0, flipConfirmCount = 0, flipConfirmTicks = 1, btcPrice = null, priceToBeat = null, ptbSafeMarginUsd = 30, disableTakeProfit = false, disableStopLoss = false, disableSignalFlip = false, disableTimeDecay = false, timeDecayMinLeftMin = 1.5, timeDecayMinLossPct = 5 }) {
   if (!position.active || currentMarketPrice == null) {
     return { shouldSell: false, reason: null, urgency: null, flipConfirmCount: 0 };
   }
@@ -138,7 +138,7 @@ export function evaluateExit({ position, modelUp, modelDown, currentMarketPrice,
   const slAgedEnough = positionAgeS >= stopLossMinDurationS;
 
   // 1. Take profit — só recomenda se o modelo também aponta reversão
-  if (roiPct >= takeProfitPct && modelConfirmsReversal) {
+  if (!disableTakeProfit && roiPct >= takeProfitPct && modelConfirmsReversal) {
     const urgency = oppositeProb >= 0.65 ? "HIGH" : "MEDIUM";
     return { shouldSell: true, reason: "TAKE_PROFIT", urgency, roiPct, flipConfirmCount: 0 };
   }

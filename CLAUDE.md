@@ -164,6 +164,7 @@ Called once at startup via `applyGlobalProxyFromEnv()`. Reads `HTTPS_PROXY`/`HTT
 | `TRADE_ENTRY_MAX_PRICE_5M` | `0.52` | 5m: maximum market price of chosen side to allow entry (lowered from 0.60 — entries ≥ 0.52 were net-losers in dry-run analysis) |
 | `TRADE_BTC_VS_PTB_MIN_USD` | `5` | 15m: skip entry when \|BTC − price_to_beat\| < this value (near-zero divergence = market undecided, 41.5% win rate). Set to `0` to disable. |
 | `TRADE_DISABLE_TIME_DECAY` | `true` | 15m: disable TIME_DECAY early exits (143 exits cost −$139.86 while non-TD trades netted +$100.22 at 73.6% WR; hold-to-settlement dominant) |
+| `TRADE_DISABLE_TAKE_PROFIT_5M` | `true` | 5m: disable TAKE_PROFIT early exits (7 real TPs averaged $0.13 pnl vs $0.89 for SETTLED_WIN; TP fires when position already winning, cutting trades that settle as wins) |
 | `TRADE_DISABLE_TIME_DECAY_5M` | `true` | 5m: disable TIME_DECAY early exits (433 exits cost −$159 vs −$5 from 165 settled trades; hold-to-settlement dominant) |
 | `TRADE_BLOCKED_HOURS_UTC` | `""` (empty) | 15m: comma-separated UTC hours during which new entries are suppressed. Default emptied 2026-05-17 — per-hour samples (n≈10–30) cannot reach statistical significance for the $0.30/trade deltas being observed (power 0.8 needs n≈79/hour). Hour list had thrashed across analyses; better to gate on price/regime/signal and let volume accumulate. Override to re-enable. |
 | `TRADE_BLOCKED_HOURS_UTC_5M` | `""` (empty) | 5m: same rationale as 15m. Override to re-enable. |
@@ -209,6 +210,8 @@ After selling, the simulator can re-enter on a new signal within the same market
 | `SETTLED_WIN` / `SETTLED_LOSS` | Market ended, position resolved |
 
 **Post-flip cooldown:** after a `SIGNAL_FLIP` exit the simulator will not open a new position for `flipCooldownS` seconds (60s on 15m, 90s on 5m). The cooldown resets when a new market starts.
+
+**Take-profit (5m — disabled):** `disableTakeProfit = true` in config5m.js. Analysis of 7 real TP trades averaged $0.13 pnl vs $0.89 for SETTLED_WIN. TP fires when the position is already winning (market price 0.62+), cutting trades that overwhelmingly settle as wins. Worst case: slippage consumed the entire TP (pnl = −$0.00). Same pattern as TIME_DECAY/SIGNAL_FLIP — premature exit destroys value on 5m where hold-to-settlement dominates.
 
 **Stop-loss (5m — disabled):** `disableStopLoss = true` in config5m.js. Analysis of 161 SL trades showed 78% correctly exited before a total loss, but the 22% that cut eventual winners cost far more than the savings: real SL PnL was −$75.65 vs hypothetical hold-to-settlement PnL of −$25.64 (+$50 left on the table). With an 85% settled win rate, holding to settlement is the dominant strategy on 5m.
 
