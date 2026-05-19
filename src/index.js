@@ -169,7 +169,7 @@ async function main() {
       const marketUp   = poly.ok ? poly.prices.up   : null;
       const marketDown = poly.ok ? poly.prices.down  : null;
       const edge = computeEdge({ modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, marketYes: marketUp, marketNo: marketDown });
-      const rec  = decide({ remainingMinutes: timeLeftMin, edgeUp: edge.edgeUp, edgeDown: edge.edgeDown, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, conflicted: scored.conflicted, regime: regimeInfo.regime, blockedRegimes: CONFIG.trading.blockedRegimes });
+      const rec  = decide({ remainingMinutes: timeLeftMin, edgeUp: edge.edgeUp, edgeDown: edge.edgeDown, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, marketUp, marketDown, conflicted: scored.conflicted, regime: regimeInfo.regime, blockedRegimes: CONFIG.trading.blockedRegimes, feeRate: CONFIG.trading.feeRate });
 
       // ── Trading ───────────────────────────────────────────────────────────
       const marketSlugNow   = poly.ok ? String(poly.market?.slug ?? "") : "";
@@ -313,6 +313,7 @@ async function main() {
         disableTimeDecay: CONFIG.trading.disableTimeDecay ?? true,
         timeDecayMinLeftMin: CONFIG.trading.timeDecayMinLeftMin ?? 1.5,
         timeDecayMinLossPct: CONFIG.trading.timeDecayMinLossPct ?? 5,
+        feeRate: CONFIG.trading.feeRate ?? 0,
       };
       if (liveTrading) {
         displayPos = getPosition();

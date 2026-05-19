@@ -30,6 +30,11 @@ export const CONFIG = {
     funder: process.env.POLYMARKET_FUNDER || "",
     signatureType: Number(process.env.POLYMARKET_SIGNATURE_TYPE || "0"),
     tradeAmount: Number(process.env.POLYMARKET_TRADE_AMOUNT || "5"),
+    // Polymarket taker fee rate. BTC markets are "Crypto" category → 0.07.
+    // Fee formula: fee_usdc = shares * feeRate * price * (1 - price).
+    // Applied to all FAK fills (entry + non-settle exits). Settlement is fee-free.
+    // Override with TRADE_FEE_RATE if a market uses a different category.
+    feeRate: Number(process.env.TRADE_FEE_RATE ?? "0.07"),
     // Exit thresholds
     takeProfitPct: Number(process.env.TRADE_TAKE_PROFIT_PCT || "20"),   // vender ao atingir +20% ROI
     stopLossPct: Number(process.env.TRADE_STOP_LOSS_PCT || "25"),        // vender ao atingir -25% ROI

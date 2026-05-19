@@ -1,4 +1,5 @@
 import { clamp } from "../utils.js";
+import { edgeAdjustmentForEntry } from "../fees.js";
 
 export function computeEdge({ modelUp, modelDown, marketYes, marketNo }) {
   if (marketYes === null || marketNo === null) {
@@ -20,10 +21,10 @@ export function computeEdge({ modelUp, modelDown, marketYes, marketNo }) {
   };
 }
 
-export function decide({ remainingMinutes, edgeUp, edgeDown, modelUp = null, modelDown = null, conflicted = false, regime = null, blockedRegimes = [] }) {
+export function decide({ remainingMinutes, edgeUp, edgeDown, modelUp = null, modelDown = null, marketUp = null, marketDown = null, conflicted = false, regime = null, blockedRegimes = [], feeRate = 0 }) {
   const phase = remainingMinutes > 10 ? "EARLY" : remainingMinutes > 5 ? "MID" : "LATE";
 
-  const threshold = phase === "EARLY" ? 0.05 : phase === "MID" ? 0.1 : 0.2;
+  const baseThreshold = phase === "EARLY" ? 0.05 : phase === "MID" ? 0.1 : 0.2;
 
   const minProb = phase === "EARLY" ? 0.55 : phase === "MID" ? 0.6 : 0.65;
 
@@ -44,9 +45,17 @@ export function decide({ remainingMinutes, edgeUp, edgeDown, modelUp = null, mod
   const bestSide = edgeUp > edgeDown ? "UP" : "DOWN";
   const bestEdge = bestSide === "UP" ? edgeUp : edgeDown;
   const bestModel = bestSide === "UP" ? modelUp : modelDown;
+  const bestMarketPrice = bestSide === "UP" ? marketUp : marketDown;
+
+  // Fee adjustment: raise the edge bar by feeRate * p * (1-p) so we never
+  // ENTER on a trade whose model edge is consumed by the entry taker fee.
+  // Settlement is fee-free, so this single-sided adjustment captures the
+  // round-trip cost when the position is held to resolution.
+  const feeAdj = edgeAdjustmentForEntry(bestMarketPrice, feeRate);
+  const threshold = baseThreshold + feeAdj;
 
   if (bestEdge < threshold) {
-    return { action: "NO_TRADE", side: null, phase, reason: `edge_below_${threshold}` };
+    return { action: "NO_TRADE", side: null, phase, reason: `edge_below_${threshold.toFixed(3)}` };
   }
 
   if (bestModel !== null && bestModel < minProb) {

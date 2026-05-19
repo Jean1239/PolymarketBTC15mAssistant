@@ -24,6 +24,7 @@ import { ensureDir } from "./utils.js";
 import { notifyTrade } from "./notify.js";
 import { fetchMarketOutcome } from "./data/polymarket.js";
 import { computeTradeAmount } from "./trading/sizing.js";
+import { takerFee, DEFAULT_FEE_RATE } from "./fees.js";
 
 // ── Headers ─────────────────────────────────────────────────────────────────
 
@@ -63,6 +64,9 @@ const TRADE_JOURNAL_HEADER = [
   "exit_value", "pnl", "roi_pct", "exit_reason", "duration_s",
   "ptb_at_entry", "btc_at_entry", "btc_vs_ptb_at_entry",
   "market_up_at_entry", "market_down_at_entry",
+  // Fee accounting (appended 2026-05-19). `pnl` and `roi_pct` are NET of fees.
+  // `gross_pnl` = exitValue - invested (pre-fee), retained for legacy comparisons.
+  "entry_fee", "exit_fee", "gross_pnl",
 ];
 
 // ── CSV helpers ─────────────────────────────────────────────────────────────
@@ -92,9 +96,15 @@ function evaluateSimExit({ pos, modelUp, modelDown, currentMarketPrice, timeLeft
     return { shouldSell: false, reason: null, roiPct: null };
   }
 
+  // Net ROI — subtracts entry taker fee already paid + the sell taker fee we'd
+  // pay to close at currentMarketPrice. Settles to gross ROI when feeRate=0.
+  const feeRate = config.feeRate ?? 0;
   const currentValue = pos.shares * currentMarketPrice;
-  const pnlUsdc = currentValue - pos.invested;
-  const roiPct = (pnlUsdc / pos.invested) * 100;
+  const entryFee = pos.entryFee ?? takerFee(pos.shares, pos.entryPrice, feeRate);
+  const sellFee = takerFee(pos.shares, currentMarketPrice, feeRate);
+  const pnlUsdc = currentValue - sellFee - pos.invested - entryFee;
+  const cashOut = pos.invested + entryFee;
+  const roiPct = cashOut > 0 ? (pnlUsdc / cashOut) * 100 : 0;
 
   const oppositeProb = (modelUp != null && modelDown != null)
     ? (pos.side === "UP" ? modelDown : modelUp)
@@ -154,7 +164,7 @@ function createSimulator(csvPath, header, config, label = "bot") {
   let buffer = []; // { dataValues[], simCols[] }[]
 
   // Virtual position
-  let pos = { active: false, side: null, entryPrice: 0, shares: 0, invested: 0, marketSlug: null, entryTime: null,
+  let pos = { active: false, side: null, entryPrice: 0, shares: 0, invested: 0, entryFee: 0, marketSlug: null, entryTime: null,
               ptbAtEntry: null, btcAtEntry: null, marketUpAtEntry: null, marketDownAtEntry: null };
   let cumulativePnl = 0;
 
@@ -173,7 +183,7 @@ function createSimulator(csvPath, header, config, label = "bot") {
   const flipConfirmTicks = config.flipConfirmTicks ?? 1;
 
   function _resetPos() {
-    pos = { active: false, side: null, entryPrice: 0, shares: 0, invested: 0, marketSlug: null, entryTime: null,
+    pos = { active: false, side: null, entryPrice: 0, shares: 0, invested: 0, entryFee: 0, marketSlug: null, entryTime: null,
             ptbAtEntry: null, btcAtEntry: null, marketUpAtEntry: null, marketDownAtEntry: null };
   }
 
@@ -184,7 +194,7 @@ function createSimulator(csvPath, header, config, label = "bot") {
     }
   }
 
-  function _logTrade({ exitPrice, exitValue, pnl, roiPct, reason, exitTime }) {
+  function _logTrade({ exitPrice, exitValue, pnl, roiPct, reason, exitTime, entryFee = 0, exitFee = 0, grossPnl = null }) {
     _ensureHeader(tradesPath, TRADE_JOURNAL_HEADER);
     const durationS = pos.entryTime ? Math.round((exitTime - pos.entryTime) / 1000) : "";
     const btcVsPtbAtEntry = (pos.btcAtEntry != null && pos.ptbAtEntry != null)
@@ -209,6 +219,9 @@ function createSimulator(csvPath, header, config, label = "bot") {
       fmt(btcVsPtbAtEntry, 2),
       fmt(pos.marketUpAtEntry, 4),
       fmt(pos.marketDownAtEntry, 4),
+      fmt(entryFee, 5),
+      fmt(exitFee, 5),
+      fmt(grossPnl ?? (exitValue - pos.invested), 4),
     ]);
     fs.appendFileSync(tradesPath, row + "\n", "utf8");
 
@@ -246,12 +259,17 @@ function createSimulator(csvPath, header, config, label = "bot") {
     const won = pos.side === outcome;
     const resolutionPrice = won ? 1.0 : 0.0;
     const exitValue = pos.shares * resolutionPrice;
-    const pnl = exitValue - pos.invested;
-    const roiPct = (pnl / pos.invested) * 100;
+    // CTF redeem is fee-free → only the entry taker fee already paid is
+    // counted against settlement PnL.
+    const entryFee = pos.entryFee ?? 0;
+    const grossPnl = exitValue - pos.invested;
+    const pnl = grossPnl - entryFee;
+    const cashOut = pos.invested + entryFee;
+    const roiPct = cashOut > 0 ? (pnl / cashOut) * 100 : 0;
     const reason = won ? "SETTLED_WIN" : "SETTLED_LOSS";
 
     cumulativePnl += pnl;
-    _logTrade({ exitPrice: resolutionPrice, exitValue, pnl, roiPct, reason, exitTime: Date.now() });
+    _logTrade({ exitPrice: resolutionPrice, exitValue, pnl, roiPct, reason, exitTime: Date.now(), entryFee, exitFee: 0, grossPnl });
     _resetPos();
   }
 
@@ -348,9 +366,16 @@ function createSimulator(csvPath, header, config, label = "bot") {
 
       if (exitEval.shouldSell && currentMktPrice != null) {
         // ── SELL ────────────────────────────────────────────────────────
+        // Mid-market exits pay a sell taker fee on top of the already-paid
+        // entry fee. PnL/ROI are NET; gross_pnl is logged separately.
+        const feeRate = config.feeRate ?? 0;
+        const entryFee = pos.entryFee ?? 0;
+        const exitFee = takerFee(pos.shares, currentMktPrice, feeRate);
         const exitValue = pos.shares * currentMktPrice;
-        const pnl = exitValue - pos.invested;
-        const roiPct = (pnl / pos.invested) * 100;
+        const grossPnl = exitValue - pos.invested;
+        const pnl = grossPnl - entryFee - exitFee;
+        const cashOut = pos.invested + entryFee;
+        const roiPct = cashOut > 0 ? (pnl / cashOut) * 100 : 0;
 
         cumulativePnl += pnl;
 
@@ -367,7 +392,7 @@ function createSimulator(csvPath, header, config, label = "bot") {
         }
         flipConfirmCount = 0;
 
-        _logTrade({ exitPrice: currentMktPrice, exitValue, pnl, roiPct, reason: exitEval.reason, exitTime: Date.now() });
+        _logTrade({ exitPrice: currentMktPrice, exitValue, pnl, roiPct, reason: exitEval.reason, exitTime: Date.now(), entryFee, exitFee, grossPnl });
         _resetPos();
       } else {
         // ── HOLD ────────────────────────────────────────────────────────
@@ -409,12 +434,15 @@ function createSimulator(csvPath, header, config, label = "bot") {
           config,
         });
         const shares = invested / entryMktPrice;
+        const feeRate = config.feeRate ?? 0;
+        const entryFee = takerFee(shares, entryMktPrice, feeRate);
         pos = {
           active: true,
           side: rec.side,
           entryPrice: entryMktPrice,
           shares,
           invested,
+          entryFee,
           marketSlug: slug,
           entryTime: Date.now(),
           ptbAtEntry: tickPtb,
@@ -508,6 +536,7 @@ function createSimulator(csvPath, header, config, label = "bot") {
  */
 export function createDryRunSimulator15m(csvPath, tradingConfig = {}) {
   const config = {
+    feeRate: tradingConfig.feeRate ?? DEFAULT_FEE_RATE,
     tradeAmount: tradingConfig.tradeAmount ?? 5,
     takeProfitPct: tradingConfig.takeProfitPct ?? 20,
     stopLossPct: tradingConfig.stopLossPct ?? 25,
@@ -542,6 +571,7 @@ export function createDryRunSimulator15m(csvPath, tradingConfig = {}) {
  */
 export function createDryRunSimulator5m(csvPath, tradingConfig = {}) {
   const config = {
+    feeRate: tradingConfig.feeRate ?? DEFAULT_FEE_RATE,
     tradeAmount: tradingConfig.tradeAmount ?? 5,
     takeProfitPct: tradingConfig.takeProfitPct ?? 20,
     stopLossPct: tradingConfig.stopLossPct ?? 25,

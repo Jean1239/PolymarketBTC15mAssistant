@@ -1,13 +1,15 @@
 // Edge detection and decision engine for 5m mode.
 // Reuses computeEdge from edge.js — only the decision thresholds change.
 
+import { edgeAdjustmentForEntry } from "../fees.js";
+
 export { computeEdge } from "./edge.js";
 
-export function decide5m({ remainingMinutes, edgeUp, edgeDown, modelUp = null, modelDown = null, heikenColor = null, ofi1m = null }) {
+export function decide5m({ remainingMinutes, edgeUp, edgeDown, modelUp = null, modelDown = null, marketUp = null, marketDown = null, heikenColor = null, ofi1m = null, feeRate = 0 }) {
   // Phases tuned for 5-minute window
   const phase = remainingMinutes > 3 ? "EARLY" : remainingMinutes > 1.5 ? "MID" : "LATE";
 
-  const threshold = phase === "EARLY" ? 0.04 : phase === "MID" ? 0.12 : 0.25;
+  const baseThreshold = phase === "EARLY" ? 0.04 : phase === "MID" ? 0.12 : 0.25;
   const minProb = phase === "EARLY" ? 0.54 : phase === "MID" ? 0.62 : 0.70;
 
   if (edgeUp === null || edgeDown === null) {
@@ -17,6 +19,7 @@ export function decide5m({ remainingMinutes, edgeUp, edgeDown, modelUp = null, m
   const bestSide = edgeUp > edgeDown ? "UP" : "DOWN";
   const bestEdge = bestSide === "UP" ? edgeUp : edgeDown;
   const bestModel = bestSide === "UP" ? modelUp : modelDown;
+  const bestMarketPrice = bestSide === "UP" ? marketUp : marketDown;
 
   // OFI alignment filter: reject if order flow contradicts the chosen direction.
   // OFI is the primary signal on 5m — entering against it means noise, not edge.
@@ -29,8 +32,13 @@ export function decide5m({ remainingMinutes, edgeUp, edgeDown, modelUp = null, m
     }
   }
 
+  // Fee adjustment: bump the edge bar by feeRate * p * (1-p) so we don't ENTER
+  // on signals whose theoretical edge is fully eaten by the taker fee.
+  const feeAdj = edgeAdjustmentForEntry(bestMarketPrice, feeRate);
+  const threshold = baseThreshold + feeAdj;
+
   if (bestEdge < threshold) {
-    return { action: "NO_TRADE", side: null, phase, reason: `edge_below_${threshold}` };
+    return { action: "NO_TRADE", side: null, phase, reason: `edge_below_${threshold.toFixed(3)}` };
   }
 
   if (bestModel !== null && bestModel < minProb) {

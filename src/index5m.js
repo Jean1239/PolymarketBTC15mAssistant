@@ -173,7 +173,7 @@ async function main() {
       const marketDown = poly.ok ? poly.prices.down  : null;
       const edge = computeEdge({ modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, marketYes: marketUp, marketNo: marketDown });
       const ofi1mVal = ofiData.ofi1m?.ofi ?? null;
-      let rec = decide5m({ remainingMinutes: timeLeftMin, edgeUp: edge.edgeUp, edgeDown: edge.edgeDown, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, heikenColor: consec.color, ofi1m: ofi1mVal });
+      let rec = decide5m({ remainingMinutes: timeLeftMin, edgeUp: edge.edgeUp, edgeDown: edge.edgeDown, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, marketUp, marketDown, heikenColor: consec.color, ofi1m: ofi1mVal, feeRate: CONFIG.trading.feeRate });
 
       // ── Trading ───────────────────────────────────────────────────────────
       const marketSlugNow   = poly.ok ? String(poly.market?.slug ?? "") : "";
@@ -360,6 +360,7 @@ async function main() {
         disableTimeDecay: CONFIG.trading.disableTimeDecay ?? true,
         timeDecayMinLeftMin: CONFIG.trading.timeDecayMinLeftMin ?? 2.5,
         timeDecayMinLossPct: CONFIG.trading.timeDecayMinLossPct ?? 15,
+        feeRate: CONFIG.trading.feeRate ?? 0,
       };
       if (liveTrading) {
         displayPos = getPosition();

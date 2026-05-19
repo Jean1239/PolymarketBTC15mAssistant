@@ -1,6 +1,7 @@
 import { AssetType } from "@polymarket/clob-client-v2";
 import { ethers } from "ethers";
 import { CONFIG } from "../config.js";
+import { takerFee } from "../fees.js";
 
 // pUSD: Polymarket's V2 collateral token on Polygon (replaced USDC.e in the
 // 2026-04-28 CLOB V2 migration). ERC-20, 6 decimals, 1:1 backed by USDC.
@@ -90,14 +91,18 @@ export function recordSell() {
   };
 }
 
-export function computeROI(currentPrice) {
+export function computeROI(currentPrice, feeRate = 0) {
   if (!position.active || !position.shares || !position.invested) {
-    return { currentValue: 0, roi: 0, pnlUsdc: 0 };
+    return { currentValue: 0, roi: 0, pnlUsdc: 0, entryFee: 0, sellFee: 0 };
   }
   const currentValue = position.shares * currentPrice;
-  const pnlUsdc = currentValue - position.invested;
-  const roi = (pnlUsdc / position.invested) * 100;
-  return { currentValue, roi, pnlUsdc };
+  const entryFee = takerFee(position.shares, position.entryPrice, feeRate);
+  const sellFee = takerFee(position.shares, currentPrice, feeRate);
+  // Net PnL = exit_value - sell_fee - (invested + entry_fee_paid_in_cash)
+  const pnlUsdc = currentValue - sellFee - position.invested - entryFee;
+  const cashOut = position.invested + entryFee;
+  const roi = cashOut > 0 ? (pnlUsdc / cashOut) * 100 : 0;
+  return { currentValue, roi, pnlUsdc, entryFee, sellFee };
 }
 
 export function resetIfMarketChanged(currentSlug) {
@@ -110,14 +115,21 @@ export function resetIfMarketChanged(currentSlug) {
 
 // Avalia se a posição aberta deve ser encerrada.
 // Retorna { shouldSell, reason, urgency } onde urgency é "HIGH" | "MEDIUM" | null
-export function evaluateExit({ position, modelUp, modelDown, currentMarketPrice, timeLeftMin, takeProfitPct, stopLossPct, signalFlipMinProb, stopLossMinProb = null, stopLossMinDurationS = 0, flipConfirmCount = 0, flipConfirmTicks = 1, btcPrice = null, priceToBeat = null, ptbSafeMarginUsd = 30, disableTakeProfit = false, disableStopLoss = false, disableSignalFlip = false, disableTimeDecay = false, timeDecayMinLeftMin = 1.5, timeDecayMinLossPct = 5 }) {
+export function evaluateExit({ position, modelUp, modelDown, currentMarketPrice, timeLeftMin, takeProfitPct, stopLossPct, signalFlipMinProb, stopLossMinProb = null, stopLossMinDurationS = 0, flipConfirmCount = 0, flipConfirmTicks = 1, btcPrice = null, priceToBeat = null, ptbSafeMarginUsd = 30, disableTakeProfit = false, disableStopLoss = false, disableSignalFlip = false, disableTimeDecay = false, timeDecayMinLeftMin = 1.5, timeDecayMinLossPct = 5, feeRate = 0 }) {
   if (!position.active || currentMarketPrice == null) {
     return { shouldSell: false, reason: null, urgency: null, flipConfirmCount: 0 };
   }
 
+  // Net ROI: subtracts the entry taker fee already paid AND the sell taker fee
+  // we would pay to close at currentMarketPrice. Gates (TP/SL/etc.) act on net
+  // ROI so the configured pct thresholds reflect real PnL, not gross PnL.
+  // feeRate=0 → fees collapse to zero → identical to legacy gross ROI.
   const currentValue = position.shares * currentMarketPrice;
-  const pnlUsdc = currentValue - position.invested;
-  const roiPct = (pnlUsdc / position.invested) * 100;
+  const entryFee = takerFee(position.shares, position.entryPrice, feeRate);
+  const sellFee = takerFee(position.shares, currentMarketPrice, feeRate);
+  const pnlUsdc = currentValue - sellFee - position.invested - entryFee;
+  const cashOut = position.invested + entryFee;
+  const roiPct = cashOut > 0 ? (pnlUsdc / cashOut) * 100 : 0;
 
   const oppositeProb = (modelUp != null && modelDown != null)
     ? (position.side === "UP" ? modelDown : modelUp)
