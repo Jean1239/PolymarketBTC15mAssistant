@@ -215,9 +215,17 @@ function processBot(bot, botConfig, args) {
   for (const [h, c] of Object.entries(counts)) console.log(`  ${h.padEnd(10)} ${c}`);
 
   if (!args.dry && tagged > 0) {
-    const bak = backupCsv(csvPath);
-    console.log(`  backup -> ${bak}`);
-    writeCsv(csvPath, header, rows);
+    try {
+      const bak = backupCsv(csvPath);
+      console.log(`  backup -> ${bak}`);
+      writeCsv(csvPath, header, rows);
+    } catch (err) {
+      // Permission errors (e.g. CSV owned by another user) should not abort
+      // the whole run — the registry is already written and the dashboard
+      // can render with config_hash falling back to "unknown" via the
+      // frontend default. Surface the error and continue with other bots.
+      console.warn(`  WARN: CSV write skipped (${err.code ?? err.message})`);
+    }
   }
 }
 
