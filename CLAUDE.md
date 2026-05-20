@@ -119,6 +119,7 @@ API endpoints:
 | `GET` | `/api/stats` | Aggregated `BotStats` for 15m and 5m |
 | `GET` | `/api/trades/15m` | All rows from `dryrun_15m_trades.csv` |
 | `GET` | `/api/trades/5m` | All rows from `dryrun_5m_trades.csv` |
+| `GET` | `/api/strategies/{15m,5m}` | Returns `{ versions[], unknownPeriod, backfillSource }`. Versions include the synthetic `unknown` bucket. Auth required. |
 | `GET` | `/api/live` | Last row of `dryrun_15m.csv` and `dryrun_5m.csv` |
 | `GET` | `/api/files` | List of files in `logs/` with name, size, modified |
 | `GET` | `/api/files/download?name=<file>` | Download a single log file |
@@ -170,6 +171,32 @@ Called once at startup via `applyGlobalProxyFromEnv()`. Reads `HTTPS_PROXY`/`HTT
 | `TRADE_BLOCKED_HOURS_UTC_5M` | `""` (empty) | 5m: same rationale as 15m. Override to re-enable. |
 | `TRADE_BLOCKED_REGIMES` | `CHOP,RANGE` | 15m: comma-separated regime names that block entry; passed to `decide()` in edge.js; valid values: `TREND_UP`, `TREND_DOWN`, `RANGE`, `CHOP` |
 
+## Strategy versioning (`src/strategy/`)
+
+The bot identifies the active strategy by hashing a canonical subset of
+`CONFIG.trading` (entry/exit gates only — secrets like `privateKey` are never
+included). On startup `ensureStrategyVersion(CONFIG.trading, { registryPath })`
+appends a new entry to `logs/strategy_versions_{15m,5m}.json` when the hash is
+unseen. Each row written to `dryrun_{15m,5m}_trades.csv` carries the current
+`config_hash` so the dashboard `/strategies` page can group trades by era.
+
+To retroactively tag old trades and populate the registry from
+`STRATEGY_LOG.md`:
+
+```bash
+npm run backfill:strategy            # both bots
+npm run backfill:strategy -- --dry   # preview without writing
+npm run backfill:strategy -- --bot=5m
+npm run smoke:strategy               # node:assert sanity for hash + registry
+```
+
+Trades earlier than the oldest version block parsed from `STRATEGY_LOG.md`
+are grouped under the synthetic `unknown` hash. `STRATEGY_FIELDS_VERSION` in
+`src/strategy/hash.js` must be bumped whenever the tracked field list
+changes (re-run the backfill afterwards). The backfill is idempotent and
+safe to re-run; it backs up CSVs to `logs/archive/backfill_<ts>/` before
+overwriting and skips rows that already have a `config_hash` cell.
+
 ## Output
 
 - Terminal screen refreshed every second via ANSI escape codes (`\x1b[H` + per-line `\x1b[K` + `\x1b[J`), rendered inside an alternate screen buffer.
@@ -179,6 +206,7 @@ Called once at startup via `applyGlobalProxyFromEnv()`. Reads `HTTPS_PROXY`/`HTT
 - `./logs/dryrun_5m.csv` — paper-trading tick-by-tick log for the 5m app (see below).
 - `./logs/dryrun_15m_trades.csv` — per-trade journal (one row per completed trade) for 15m.
 - `./logs/dryrun_5m_trades.csv` — per-trade journal (one row per completed trade) for 5m.
+- `./logs/strategy_versions_15m.json` / `strategy_versions_5m.json` — append-only registry of detected strategy versions. Written by `ensureStrategyVersion()` at bot startup and by `scripts/backfillStrategyHash.js`. Schema: `[{ hash, label, detectedAt, fieldsVersion, config, source, partial? }]`.
 - `./logs/polymarket_market_<slug>.json` — raw Polymarket market JSON dumped once per new market slug.
 - `./logs/archive/<timestamp>/` — backup copies of CSV files created by `POST /api/logs/clear` before truncation.
 
