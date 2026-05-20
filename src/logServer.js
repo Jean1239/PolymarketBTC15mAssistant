@@ -8,6 +8,7 @@ import { getAuth } from "./auth/instance.js";
 import { runMigrations } from "./auth/migrate.js";
 import { seedAdmin } from "./auth/seedAdmin.js";
 import { buildAnalysisBundle } from "./analysisBundle.js";
+import { takerFee, DEFAULT_FEE_RATE } from "./fees.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -26,36 +27,40 @@ const TRADES_FILE = {
   "5m":  TRADE_SOURCE === "real" ? "real_5m_trades.csv"  : "dryrun_5m_trades.csv",
 };
 
-// Polymarket taker fee model for crypto markets.
-// Source: https://docs.polymarket.com/trading/fees — fees apply only to taker
-// orders on crypto markets (BTC/ETH/SOL/XRP, all timeframes since 2026-03).
-// Formula:   fee_per_side = trade_value × feeRate × (p × (1-p))^exponent
-// Crypto category: exponent = 1; the feeRate (`r` in the CLOB market info)
-// peaks the effective rate at feeRate × 0.25 when p = 0.50 and decays toward
-// the extremes. Defaults below give ≈2.5% peak per side (matching the
-// "up to ~3%" range reported when 15m fees launched). Override via env vars.
+// Polymarket taker fee model. Single source of truth lives in src/fees.js
+// (`takerFee(shares, price, feeRate)` = shares × feeRate × p × (1-p)).
+// The empirical calibration from /activity (scripts/auditRealFees.js and
+// scripts/backfillFees.js) confirmed feeRate ≈ 0.07 on crypto markets to
+// four decimal places, matching the docs and the bot's CONFIG.trading.feeRate.
 //
-// Settlement (SETTLED_WIN / SETTLED_LOSS) is an on-chain CTF redemption, not
-// a trade — no taker fee is charged on that leg.
+// Fee precedence per trade row:
+//   1. Use the `entry_fee_model` / `exit_fee_model` columns if the CSV has
+//      them populated (new rows + rows touched by scripts/backfillFees.js).
+//   2. Otherwise compute from shares + price via takerFee() — same formula
+//      the bot uses, no second-guessing.
+// SETTLED_WIN / SETTLED_LOSS exits pay no exit fee (CTF redemption is free).
+//
+// Kept as env-overridable for ops sanity checks (`POLYMARKET_FEE_RATE=0`
+// disables fee accounting entirely for A/B comparisons).
 const FEE_RATE = (() => {
-  const raw = parseFloat(process.env.POLYMARKET_FEE_RATE ?? "0.10");
-  return Number.isFinite(raw) && raw >= 0 ? raw : 0.10;
+  const raw = parseFloat(process.env.POLYMARKET_FEE_RATE ?? String(DEFAULT_FEE_RATE));
+  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_FEE_RATE;
 })();
-const FEE_EXPONENT = (() => {
-  const raw = parseFloat(process.env.POLYMARKET_FEE_EXPONENT ?? "1");
-  return Number.isFinite(raw) && raw >= 0 ? raw : 1;
-})();
-
-function feePerSide(tradeValue, price) {
-  if (!Number.isFinite(tradeValue) || tradeValue <= 0) return 0;
-  if (!Number.isFinite(price) || price <= 0 || price >= 1) return 0;
-  return tradeValue * FEE_RATE * Math.pow(price * (1 - price), FEE_EXPONENT);
-}
+// Legacy exponent — kept in the API payload so dashboard clients don't
+// break, but unused by the active formula (always 1 for canonical model).
+const FEE_EXPONENT = 1;
 
 function feeForTrade(t) {
-  const entryFee = feePerSide(t.invested, t.entry_price);
+  const csvEntry = parseFloat(t.entry_fee_model);
+  const csvExit = parseFloat(t.exit_fee_model);
+  if (Number.isFinite(csvEntry) || Number.isFinite(csvExit)) {
+    return (Number.isFinite(csvEntry) ? csvEntry : 0)
+         + (Number.isFinite(csvExit) ? csvExit : 0);
+  }
+  const shares = Number(t.shares);
+  const entryFee = takerFee(shares, Number(t.entry_price), FEE_RATE);
   const exitIsSettlement = typeof t.exit_reason === "string" && t.exit_reason.startsWith("SETTLED");
-  const exitFee = exitIsSettlement ? 0 : feePerSide(t.exit_value, t.exit_price);
+  const exitFee = exitIsSettlement ? 0 : takerFee(shares, Number(t.exit_price), FEE_RATE);
   return entryFee + exitFee;
 }
 

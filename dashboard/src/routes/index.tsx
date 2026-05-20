@@ -59,9 +59,10 @@ function BotOverview({ stats, label }: { stats: BotStats; label: string }) {
     pnl: { label: "Cum. P&L (gross)", color: "hsl(142 76% 36%)" },
     pnlNet: { label: "Cum. P&L (net of fees)", color: "hsl(38 92% 50%)" },
   }
-  // Peak effective taker fee rate (% of trade value) at p=0.50, per Polymarket
-  // formula fee = trade_value × feeRate × (p(1-p))^exponent.
-  const feePeakPct = (stats.feeRate * Math.pow(0.25, stats.feeExponent) * 100).toFixed(2)
+  // Effective fee as % of trade value (invested) at p=0.50.
+  // Canonical Polymarket formula: fee = shares × feeRate × p × (1-p),
+  // i.e. fee / trade_value = feeRate × (1-p). At p=0.50 → feeRate × 0.5.
+  const feePeakPct = (stats.feeRate * 0.5 * 100).toFixed(2)
   const exitChartConfig = Object.fromEntries(
     exitReasonData.map((d) => [d.reason, { label: d.reason, color: EXIT_COLORS[d.reason] ?? "hsl(240 5% 64%)" }])
   )
