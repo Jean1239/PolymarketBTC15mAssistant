@@ -19,6 +19,25 @@ export interface Trade {
   market_down_at_entry: number
   fee: number
   pnl_net: number
+  config_hash?: string
+}
+
+export interface StrategyVersion {
+  hash: string
+  label: string
+  startedAt: string
+  endedAt: string | null
+  source: "auto" | "backfill"
+  partial: boolean
+  fieldsVersion: number
+  config: Record<string, unknown> | null
+  configDiff: Record<string, { from: unknown; to: unknown }> | null
+}
+
+export interface StrategiesResponse {
+  versions: StrategyVersion[]
+  unknownPeriod: { startedAt: null; endedAt: string } | null
+  backfillSource: "STRATEGY_LOG.md" | null
 }
 
 export interface BotStats {
@@ -180,6 +199,8 @@ export const api = {
   stats: () => get<StatsResponse>("/api/stats"),
   trades15m: () => get<Trade[]>("/api/trades/15m"),
   trades5m: () => get<Trade[]>("/api/trades/5m"),
+  strategies15m: () => get<StrategiesResponse>("/api/strategies/15m"),
+  strategies5m: () => get<StrategiesResponse>("/api/strategies/5m"),
   live: () => get<LiveResponse>("/api/live"),
   files: () => get<LogFile[]>("/api/files"),
   fileTail: (name: string, lines: number) =>
