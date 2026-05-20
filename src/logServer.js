@@ -475,6 +475,61 @@ function serveStatic(urlPath, res) {
   }
 }
 
+// ── Strategy registry helpers ────────────────────────────────────────────────
+
+function loadStrategyRegistry(bot) {
+  const p = path.join(LOGS_DIR, `strategy_versions_${bot}.json`);
+  if (!existsSync(p)) return [];
+  try {
+    const arr = JSON.parse(readFileSync(p, "utf8"));
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return null; // sentinel for "exists but unparseable"
+  }
+}
+
+function computeConfigDiff(prev, curr) {
+  if (!prev || !curr) return null;
+  const diff = {};
+  const keys = new Set([...Object.keys(prev), ...Object.keys(curr)]);
+  for (const k of keys) {
+    const a = prev[k], b = curr[k];
+    if (JSON.stringify(a) !== JSON.stringify(b)) diff[k] = { from: a, to: b };
+  }
+  return Object.keys(diff).length ? diff : null;
+}
+
+function buildStrategiesResponse(bot) {
+  const raw = loadStrategyRegistry(bot);
+  if (raw === null) return { error: "registry_parse_error", status: 500 };
+  raw.sort((a, b) => (a.detectedAt ?? "").localeCompare(b.detectedAt ?? ""));
+
+  let prevConfig = null;
+  const versions = raw.map((v, i) => {
+    const next = raw[i + 1];
+    const out = {
+      hash: v.hash,
+      label: v.label,
+      startedAt: v.detectedAt,
+      endedAt: next ? next.detectedAt : null,
+      source: v.source ?? "auto",
+      partial: v.partial ?? false,
+      fieldsVersion: v.fieldsVersion ?? 1,
+      config: v.config ?? null,
+      configDiff: computeConfigDiff(prevConfig, v.config),
+    };
+    prevConfig = v.config ?? prevConfig;
+    return out;
+  });
+
+  const unknown = versions.find(v => v.hash === "unknown") ?? null;
+  return {
+    versions, // includes unknown if present
+    unknownPeriod: unknown ? { startedAt: null, endedAt: unknown.endedAt } : null,
+    backfillSource: raw.some(v => v.source === "backfill") ? "STRATEGY_LOG.md" : null,
+  };
+}
+
 // ── Request handler ──────────────────────────────────────────────────────────
 
 function json(res, data) {
@@ -539,6 +594,17 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/trades/5m") {
       const rows = coerceTrades(parseCsv(path.join(LOGS_DIR, TRADES_FILE["5m"])));
       return json(res, rows);
+    }
+
+    if (p === "/api/strategies/15m" || p === "/api/strategies/5m") {
+      const bot = p.endsWith("/15m") ? "15m" : "5m";
+      const body = buildStrategiesResponse(bot);
+      if (body.error) {
+        res.writeHead(body.status, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: body.error }));
+        return;
+      }
+      return json(res, body);
     }
 
     if (p === "/api/stats") {
