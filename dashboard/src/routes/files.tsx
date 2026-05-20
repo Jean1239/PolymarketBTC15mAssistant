@@ -129,16 +129,16 @@ function FilesPage() {
   const [selectedNames, setSelectedNames] = useState<string[]>([])
   const [downloading, setDownloading] = useState(false)
   const [viewerName, setViewerName] = useState<string | null>(null)
-  const { selected: selectedBot } = useSelectedBot()
+  const { selected: selectedBot, setSelected: setSelectedBot, visibleBots } = useSelectedBot()
   const [filterByBot, setFilterByBot] = useState(true)
 
+  const matchesBot = (name: string, bot: "15m" | "5m") => {
+    const re = bot === "15m" ? /(^|_)15m(_|\.|$)/ : /(^|_)5m(_|\.|$)/
+    return re.test(name)
+  }
+
   const filteredData = data && filterByBot
-    ? data.filter((f) => {
-        const n = f.name
-        if (selectedBot === "15m") return n.includes("_15m") || n.includes("15m_")
-        if (selectedBot === "5m") return n.includes("_5m") || n.includes("5m_")
-        return true
-      })
+    ? data.filter((f) => matchesBot(f.name, selectedBot))
     : data
 
   const toggleFile = useCallback((name: string) => {
@@ -203,6 +203,24 @@ function FilesPage() {
           )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1 rounded-md border border-border bg-card p-0.5">
+            {(["15m", "5m"] as const).map((b) => {
+              const visible = visibleBots.includes(b)
+              return (
+                <Button
+                  key={b}
+                  size="sm"
+                  variant={selectedBot === b ? "secondary" : "ghost"}
+                  className="h-7 px-2 text-xs"
+                  onClick={() => setSelectedBot(b)}
+                  disabled={!visible}
+                  title={visible ? `Selecionar bot ${b}` : `${b} sem dados`}
+                >
+                  {b}
+                </Button>
+              )
+            })}
+          </div>
           <Button
             variant={filterByBot ? "secondary" : "ghost"}
             size="sm"
