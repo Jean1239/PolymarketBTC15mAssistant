@@ -190,15 +190,83 @@ function createSimulator(csvPath, header, config, label = "bot", configHash = "u
             ptbAtEntry: null, btcAtEntry: null, marketUpAtEntry: null, marketDownAtEntry: null };
   }
 
-  function _ensureHeader(filePath, headerRow) {
+  function _ensureHeader(filePath, headerRow, legacyLayouts = null) {
     ensureDir(path.dirname(filePath));
     if (!fs.existsSync(filePath)) {
       fs.writeFileSync(filePath, headerRow.join(",") + "\n", "utf8");
+      return;
     }
+    // Migrate stale headers in-place. Read first line cheaply (small slice).
+    const buf = fs.readFileSync(filePath, "utf8");
+    const newlineIdx = buf.indexOf("\n");
+    if (newlineIdx < 0) {
+      // Single-line file with stale header and no rows — overwrite with new header.
+      fs.writeFileSync(filePath, headerRow.join(",") + "\n", "utf8");
+      return;
+    }
+    const onDiskHeader = buf.slice(0, newlineIdx);
+    const canonical = headerRow.join(",");
+    if (onDiskHeader === canonical) return;
+
+    const onDiskCols = onDiskHeader.split(",").length;
+    const targetCols = headerRow.length;
+    const rest = buf.slice(newlineIdx + 1);
+    const lines = rest.split("\n").filter((l) => l.length > 0);
+
+    // Map each row to target width. Use legacyLayouts when known; otherwise
+    // append-pad shorter rows; refuse to touch wider rows (preserves data).
+    const mapping = legacyLayouts && legacyLayouts[onDiskCols];
+    const migrated = [];
+    let migratedCount = 0;
+    let skippedCount = 0;
+    for (const line of lines) {
+      const fields = line.split(",");
+      if (fields.length === targetCols) {
+        migrated.push(line);
+        continue;
+      }
+      if (fields.length > targetCols) {
+        // Don't drop rows that have more columns than expected. Truncating
+        // would silently lose data; leave them and log once below.
+        migrated.push(line);
+        skippedCount++;
+        continue;
+      }
+      let out;
+      if (mapping) {
+        out = new Array(targetCols).fill("");
+        for (let i = 0; i < mapping.length; i++) {
+          out[mapping[i]] = fields[i];
+        }
+      } else {
+        out = fields.concat(new Array(targetCols - fields.length).fill(""));
+      }
+      migrated.push(out.join(","));
+      migratedCount++;
+    }
+
+    const backupPath = `${filePath}.bak-${Date.now()}`;
+    fs.copyFileSync(filePath, backupPath);
+    fs.writeFileSync(filePath, canonical + "\n" + migrated.join("\n") + (migrated.length ? "\n" : ""), "utf8");
+    console.log(
+      `[dryRun] migrated header in ${path.basename(filePath)}: ` +
+      `${onDiskCols} -> ${targetCols} cols, ${migratedCount} rows padded, ` +
+      `${skippedCount} rows untouched. backup: ${path.basename(backupPath)}`,
+    );
   }
 
+  // Legacy layout for the trade journal. 19-col version (pre-2026-05-19) had
+  // config_hash as the final column; new layout inserts entry_fee/exit_fee/
+  // gross_pnl between market_down_at_entry and config_hash.
+  const TRADE_JOURNAL_LEGACY_LAYOUTS = {
+    19: [
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+      21, // old config_hash -> new position 21
+    ],
+  };
+
   function _logTrade({ exitPrice, exitValue, pnl, roiPct, reason, exitTime, entryFee = 0, exitFee = 0, grossPnl = null }) {
-    _ensureHeader(tradesPath, TRADE_JOURNAL_HEADER);
+    _ensureHeader(tradesPath, TRADE_JOURNAL_HEADER, TRADE_JOURNAL_LEGACY_LAYOUTS);
     const durationS = pos.entryTime ? Math.round((exitTime - pos.entryTime) / 1000) : "";
     const btcVsPtbAtEntry = (pos.btcAtEntry != null && pos.ptbAtEntry != null)
       ? pos.btcAtEntry - pos.ptbAtEntry

@@ -13,6 +13,7 @@
 # %%
 from __future__ import annotations
 import json
+from io import StringIO
 from pathlib import Path
 
 import numpy as np
@@ -37,11 +38,113 @@ print(f"Missing files: {manifest['missing']}")
 for f in manifest["files"]:
     print(f"  {f['name']:36s}  rows={f['rows']}  {f['firstTs']} -> {f['lastTs']}")
 
+# Canonical headers — kept in sync with src/dryRun.js. If the bot adds columns,
+# mirror them here AND list the upgrade in `_TRADE_LEGACY_LAYOUTS` so old rows
+# can be padded into the new schema.
+_TRADE_HEADER = [
+    "entry_time", "exit_time", "market_slug", "side",
+    "entry_price", "exit_price", "shares", "invested",
+    "exit_value", "pnl", "roi_pct", "exit_reason", "duration_s",
+    "ptb_at_entry", "btc_at_entry", "btc_vs_ptb_at_entry",
+    "market_up_at_entry", "market_down_at_entry",
+    "entry_fee", "exit_fee", "gross_pnl",
+    "config_hash",
+]
+
+# Maps an old number-of-fields to where each old field lands in the new schema.
+# Old 19-col layout (pre-2026-05-19) had config_hash at position 18 (0-indexed)
+# and lacked entry_fee/exit_fee/gross_pnl.
+_TRADE_LEGACY_LAYOUTS = {
+    19: list(range(18)) + [21],  # 0..17 unchanged; old col 18 (config_hash) -> new col 21
+}
+
+_TICK_HEADER_15M = [
+    "timestamp", "market_slug", "time_left_min",
+    "btc_price", "market_up", "market_down",
+    "regime", "signal", "model_up", "model_down", "edge_up", "edge_down", "rec_detail",
+    "rsi", "rsi_slope", "macd_hist", "macd_label", "ha_color", "ha_count",
+    "vwap", "vwap_dist_pct", "vwap_slope",
+    "price_to_beat", "btc_vs_ptb",
+    "sim_action", "sim_side", "sim_entry_price", "sim_current_price",
+    "sim_roi_pct", "sim_exit_reason", "sim_pnl", "sim_cum_pnl", "sim_invested",
+    "outcome", "btc_at_settlement",
+]
+_TICK_HEADER_5M = [
+    "timestamp", "market_slug", "time_left_min",
+    "btc_price", "market_up", "market_down",
+    "signal", "model_up", "model_down", "edge_up", "edge_down", "rec_detail",
+    "ofi_30s", "ofi_1m", "ofi_2m", "roc1", "roc3", "ema_cross",
+    "rsi", "ha_color", "ha_count", "vwap", "vwap_dist_pct", "vwap_slope",
+    "price_to_beat", "btc_vs_ptb",
+    "sim_action", "sim_side", "sim_entry_price", "sim_current_price",
+    "sim_roi_pct", "sim_exit_reason", "sim_pnl", "sim_cum_pnl", "sim_invested",
+    "outcome", "btc_at_settlement",
+]
+
+
+def _pad_row(fields: list[str], target_len: int, layouts: dict[int, list[int]] | None = None) -> tuple[list[str], bool]:
+    """Returns (padded_fields, was_padded). Drops nothing here; long rows handled by caller."""
+    cur = len(fields)
+    if cur == target_len:
+        return fields, False
+    if layouts and cur in layouts:
+        mapping = layouts[cur]
+        out = [""] * target_len
+        for old_idx, new_idx in enumerate(mapping):
+            out[new_idx] = fields[old_idx]
+        return out, True
+    if cur < target_len:
+        # Generic append-only upgrade: pad missing cells at the end.
+        return fields + [""] * (target_len - cur), True
+    return fields, False  # too-long handled by caller
+
+
+def load_csv_robust(fp: Path, header: list[str], layouts: dict[int, list[int]] | None = None, label: str = "") -> pd.DataFrame | None:
+    """Tolerates stale-header schema drift.
+
+    - Drops the on-disk header (assumed possibly stale).
+    - Each data row is normalised to `header` width using `layouts` for known
+      legacy widths, append-pad for unknown shorter rows, and dropped (logged)
+      for longer-than-canonical rows.
+    """
+    if not fp.exists():
+        return None
+    text = fp.read_text()
+    raw_lines = [l for l in text.split("\n") if l]
+    if not raw_lines:
+        return pd.DataFrame(columns=header)
+    target = len(header)
+    padded_count = 0
+    dropped_count = 0
+    out_rows: list[str] = []
+    # Skip on-disk header (line 0) — we use canonical `header` instead.
+    for line in raw_lines[1:]:
+        fields = line.split(",")
+        if len(fields) > target:
+            dropped_count += 1
+            continue
+        normalised, was_padded = _pad_row(fields, target, layouts)
+        if was_padded:
+            padded_count += 1
+        out_rows.append(",".join(normalised))
+    csv_text = ",".join(header) + "\n" + "\n".join(out_rows) + ("\n" if out_rows else "")
+    df = pd.read_csv(StringIO(csv_text))
+    loaded = len(df)
+    print(f"  load {label or fp.name}: loaded {loaded} rows, padded {padded_count}, dropped {dropped_count}")
+    return df
+
+
 def load_csv(name: str) -> pd.DataFrame | None:
+    """Loader that auto-routes to the robust loader for known schemas."""
     fp = BUNDLE_DIR / name
+    if name.endswith("_trades.csv"):
+        return load_csv_robust(fp, _TRADE_HEADER, _TRADE_LEGACY_LAYOUTS, label=name)
+    if name == f"dryrun_{BOT}.csv":
+        return load_csv_robust(fp, _TICK_HEADER_5M if BOT == "5m" else _TICK_HEADER_15M, None, label=name)
     if not fp.exists():
         return None
     return pd.read_csv(fp)
+
 
 ticks = load_csv(f"dryrun_{BOT}.csv")
 sim_trades = load_csv(f"dryrun_{BOT}_trades.csv")
@@ -64,6 +167,22 @@ for df, col in [
 ]:
     if df is not None and col in df.columns:
         df[col] = pd.to_datetime(df[col], utc=True, errors="coerce")
+
+# Tick-coverage check — counterfactual replay (§4) and indicator hit-rate (§5)
+# need ticks that span the trades window. If ticks are much narrower, warn the
+# user before they look at empty plots.
+if ticks is not None and sim_trades is not None and not sim_trades.empty:
+    t0, t1 = ticks["timestamp"].min(), ticks["timestamp"].max()
+    s0, s1 = sim_trades["entry_time"].min(), sim_trades["exit_time"].max()
+    tick_span = (t1 - t0).total_seconds() / 60 if pd.notna(t0) and pd.notna(t1) else 0
+    trade_span = (s1 - s0).total_seconds() / 60 if pd.notna(s0) and pd.notna(s1) else 0
+    if tick_span > 0 and trade_span > 0 and tick_span < trade_span * 0.5:
+        print(
+            f"\n⚠️  Ticks cover {tick_span:.1f} min ({t0} -> {t1});\n"
+            f"   trades span {trade_span/60/24:.1f} days ({s0} -> {s1}).\n"
+            f"   §4 (counterfactual) and §5 (hit-rate) will run on a tiny slice.\n"
+            f"   Restart the bot and accumulate ticks before re-running those sections."
+        )
 
 # %% [markdown]
 # ## 2. Decode strategy
@@ -266,7 +385,9 @@ def replay(ticks_df: pd.DataFrame, cfg: StrategyCfg, trade_amount: float = 5.0) 
                     pos = _Pos(side=sig, entry_price=price, entry_time=ts,
                                invested=trade_amount, shares=shares)
 
-    return pd.DataFrame(out)
+    cols = ["entry_time", "exit_time", "market_slug", "side", "entry_price",
+            "exit_price", "pnl", "roi_pct", "exit_reason", "duration_s"]
+    return pd.DataFrame(out, columns=cols)
 
 # %% [markdown]
 # ### 4a. Validation — Python replay must roughly match JS engine
