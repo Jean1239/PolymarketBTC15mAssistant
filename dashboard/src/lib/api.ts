@@ -196,7 +196,8 @@ export interface ClearLogsResult {
 }
 
 export const api = {
-  stats: () => get<StatsResponse>("/api/stats"),
+  stats: (sinceIso?: string) =>
+    get<StatsResponse>(`/api/stats${sinceIso ? `?since=${encodeURIComponent(sinceIso)}` : ""}`),
   trades15m: () => get<Trade[]>("/api/trades/15m"),
   trades5m: () => get<Trade[]>("/api/trades/5m"),
   strategies15m: () => get<StrategiesResponse>("/api/strategies/15m"),

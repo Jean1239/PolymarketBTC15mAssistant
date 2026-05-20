@@ -608,8 +608,17 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === "/api/stats") {
-      const t15 = coerceTrades(parseCsv(path.join(LOGS_DIR, TRADES_FILE["15m"])));
-      const t5 = coerceTrades(parseCsv(path.join(LOGS_DIR, TRADES_FILE["5m"])));
+      const since = url.searchParams.get("since");
+      const sinceMs = since ? Date.parse(since) : null;
+      const filterSince = (rows) => {
+        if (!sinceMs || !Number.isFinite(sinceMs)) return rows;
+        return rows.filter((t) => {
+          const ms = Date.parse(t.exit_time);
+          return Number.isFinite(ms) && ms >= sinceMs;
+        });
+      };
+      const t15 = filterSince(coerceTrades(parseCsv(path.join(LOGS_DIR, TRADES_FILE["15m"]))));
+      const t5 = filterSince(coerceTrades(parseCsv(path.join(LOGS_DIR, TRADES_FILE["5m"]))));
       return json(res, { "15m": computeStats(t15), "5m": computeStats(t5), source: TRADE_SOURCE });
     }
 

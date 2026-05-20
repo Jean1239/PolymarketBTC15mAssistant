@@ -1,6 +1,8 @@
+import { useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
 import { TrendingUp, TrendingDown, Activity } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
@@ -171,10 +173,33 @@ function BotOverview({ stats, label }: { stats: BotStats; label: string }) {
   )
 }
 
+type RangeKey = "1D" | "1W" | "1M" | "YTD" | "ALL"
+const RANGES: { key: RangeKey; label: string }[] = [
+  { key: "1D", label: "1D" },
+  { key: "1W", label: "1W" },
+  { key: "1M", label: "1M" },
+  { key: "YTD", label: "YTD" },
+  { key: "ALL", label: "ALL" },
+]
+
+function sinceForRange(key: RangeKey): string | undefined {
+  const now = new Date()
+  switch (key) {
+    case "1D": return new Date(now.getTime() - 24 * 3600 * 1000).toISOString()
+    case "1W": return new Date(now.getTime() - 7 * 24 * 3600 * 1000).toISOString()
+    case "1M": return new Date(now.getTime() - 30 * 24 * 3600 * 1000).toISOString()
+    case "YTD": return new Date(Date.UTC(now.getUTCFullYear(), 0, 1)).toISOString()
+    case "ALL": return undefined
+  }
+}
+
 function OverviewPage() {
+  const [range, setRange] = useState<RangeKey>("ALL")
+  const sinceIso = sinceForRange(range)
+
   const { data, isLoading, error } = useQuery({
-    queryKey: ["stats"],
-    queryFn: api.stats,
+    queryKey: ["stats", range],
+    queryFn: () => api.stats(sinceIso),
     refetchInterval: 30_000,
   })
 
@@ -194,7 +219,22 @@ function OverviewPage() {
           <h1 className="text-lg font-semibold">Overview</h1>
           <span className="text-xs text-muted-foreground">refreshes every 30s</span>
         </div>
-        <ClearLogsButton />
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 rounded-md border border-border bg-card p-0.5">
+            {RANGES.map((r) => (
+              <Button
+                key={r.key}
+                size="sm"
+                variant={range === r.key ? "secondary" : "ghost"}
+                className="h-7 px-2 text-xs"
+                onClick={() => setRange(r.key)}
+              >
+                {r.label}
+              </Button>
+            ))}
+          </div>
+          <ClearLogsButton />
+        </div>
       </div>
 
       <TradeEventsCard />
