@@ -67,6 +67,9 @@ const TRADE_JOURNAL_HEADER = [
   // Fee accounting (appended 2026-05-19). `pnl` and `roi_pct` are NET of fees.
   // `gross_pnl` = exitValue - invested (pre-fee), retained for legacy comparisons.
   "entry_fee", "exit_fee", "gross_pnl",
+  // Strategy versioning. Append-only — written by the simulator factory
+  // from the value returned by ensureStrategyVersion() at bot startup.
+  "config_hash",
 ];
 
 // ── CSV helpers ─────────────────────────────────────────────────────────────
@@ -155,7 +158,7 @@ function evaluateSimExit({ pos, modelUp, modelDown, currentMarketPrice, timeLeft
 
 // ── Simulator core ──────────────────────────────────────────────────────────
 
-function createSimulator(csvPath, header, config, label = "bot") {
+function createSimulator(csvPath, header, config, label = "bot", configHash = "unknown") {
   const tradesPath = csvPath.replace(/\.csv$/, "_trades.csv");
 
   let currentSlug = null;
@@ -222,6 +225,7 @@ function createSimulator(csvPath, header, config, label = "bot") {
       fmt(entryFee, 5),
       fmt(exitFee, 5),
       fmt(grossPnl ?? (exitValue - pos.invested), 4),
+      configHash,
     ]);
     fs.appendFileSync(tradesPath, row + "\n", "utf8");
 
@@ -534,7 +538,7 @@ function createSimulator(csvPath, header, config, label = "bot") {
  * @param {string} csvPath - path for the tick-by-tick CSV
  * @param {{ tradeAmount?: number, takeProfitPct?: number, stopLossPct?: number, signalFlipMinProb?: number }} [tradingConfig]
  */
-export function createDryRunSimulator15m(csvPath, tradingConfig = {}) {
+export function createDryRunSimulator15m(csvPath, tradingConfig = {}, opts = {}) {
   const config = {
     feeRate: tradingConfig.feeRate ?? DEFAULT_FEE_RATE,
     tradeAmount: tradingConfig.tradeAmount ?? 5,
@@ -561,7 +565,8 @@ export function createDryRunSimulator15m(csvPath, tradingConfig = {}) {
     highConvictionEntryMin: tradingConfig.highConvictionEntryMin ?? 0.50,
     highConvictionEntryMax: tradingConfig.highConvictionEntryMax ?? 0.52,
   };
-  return createSimulator(csvPath, HEADER_15M, config, "15m");
+  const configHash = opts.configHash ?? "unknown";
+  return createSimulator(csvPath, HEADER_15M, config, "15m", configHash);
 }
 
 /**
@@ -569,7 +574,7 @@ export function createDryRunSimulator15m(csvPath, tradingConfig = {}) {
  * @param {string} csvPath - path for the tick-by-tick CSV
  * @param {{ tradeAmount?: number, takeProfitPct?: number, stopLossPct?: number, signalFlipMinProb?: number, stopLossMinProb?: number, stopLossMinDurationS?: number, flipCooldownS?: number }} [tradingConfig]
  */
-export function createDryRunSimulator5m(csvPath, tradingConfig = {}) {
+export function createDryRunSimulator5m(csvPath, tradingConfig = {}, opts = {}) {
   const config = {
     feeRate: tradingConfig.feeRate ?? DEFAULT_FEE_RATE,
     tradeAmount: tradingConfig.tradeAmount ?? 5,
@@ -596,5 +601,6 @@ export function createDryRunSimulator5m(csvPath, tradingConfig = {}) {
     highConvictionEntryMin: tradingConfig.highConvictionEntryMin ?? 0.50,
     highConvictionEntryMax: tradingConfig.highConvictionEntryMax ?? 0.52,
   };
-  return createSimulator(csvPath, HEADER_5M, config, "5m");
+  const configHash = opts.configHash ?? "unknown";
+  return createSimulator(csvPath, HEADER_5M, config, "5m", configHash);
 }
