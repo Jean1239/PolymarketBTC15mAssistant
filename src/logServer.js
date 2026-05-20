@@ -7,6 +7,7 @@ import { toNodeHandler, fromNodeHeaders } from "better-auth/node";
 import { getAuth } from "./auth/instance.js";
 import { runMigrations } from "./auth/migrate.js";
 import { seedAdmin } from "./auth/seedAdmin.js";
+import { buildAnalysisBundle } from "./analysisBundle.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -730,6 +731,27 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, {
         "Content-Type": "application/zip",
         "Content-Disposition": `attachment; filename="polymarket-logs-${date}.zip"`,
+        "Content-Length": buf.length,
+        "Cache-Control": "no-store",
+        "Access-Control-Allow-Origin": "*",
+      });
+      res.end(buf);
+      return;
+    }
+
+    if (p === "/api/analysis-bundle") {
+      const bot = url.searchParams.get("bot");
+      const result = buildAnalysisBundle(LOGS_DIR, bot, TRADE_SOURCE);
+      if (result.error) {
+        res.writeHead(result.status, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: result.error }));
+        return;
+      }
+      const buf = buildZip(result.items);
+      const ts = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 16);
+      res.writeHead(200, {
+        "Content-Type": "application/zip",
+        "Content-Disposition": `attachment; filename="polymarket-analysis-${bot}-${ts}.zip"`,
         "Content-Length": buf.length,
         "Cache-Control": "no-store",
         "Access-Control-Allow-Origin": "*",
