@@ -30,6 +30,7 @@ import { executeRealBuy, executeRealSell } from "./trading/executor.js";
 import { createPriceLatch } from "./trading/priceLatch.js";
 import { createTradeTracker } from "./trading/tracker.js";
 import { createDryRunSimulator5m } from "./dryRun.js";
+import { ensureStrategyVersion } from "./strategy/registry.js";
 import { createRedemptionWorker } from "./trading/redeem.js";
 import { createRealTradeLogger } from "./trading/realTradeLog.js";
 import { notifyStart, notifyDailySummary } from "./notify.js";
@@ -82,7 +83,18 @@ async function main() {
   const dumpedMarkets = new Set();
   notifyStart("5m");
 
-  const dryRun = createDryRunSimulator5m("./logs/dryrun_5m.csv", CONFIG.trading);
+  const strategyVersion = ensureStrategyVersion(CONFIG.trading, {
+    registryPath: "./logs/strategy_versions_5m.json",
+    source: "auto",
+  });
+  if (strategyVersion.created) {
+    console.error(`[strategy] new version detected: ${strategyVersion.label} (${strategyVersion.hash})`);
+  }
+  const dryRun = createDryRunSimulator5m(
+    "./logs/dryrun_5m.csv",
+    CONFIG.trading,
+    { configHash: strategyVersion.hash },
+  );
   process.on("exit", () => dryRun.flushNow());
 
   const realTradeLog = createRealTradeLogger("./logs/real_5m_trades.csv");
