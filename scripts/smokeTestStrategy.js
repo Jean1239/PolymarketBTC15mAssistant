@@ -34,3 +34,50 @@ assert.ok(STRATEGY_FIELDS_VERSION >= 1, "STRATEGY_FIELDS_VERSION >= 1");
 assert.ok(Array.isArray(STRATEGY_FIELDS) && STRATEGY_FIELDS.every(s => typeof s === "string"));
 
 console.log("OK strategy hash smoke");
+
+// --- Registry round-trip ---------------------------------------------------
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import {
+  ensureStrategyVersion,
+  loadRegistry,
+  REGISTRY_LATEST_VERSION,
+} from "../src/strategy/registry.js";
+
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "strategy-smoke-"));
+const regPath = path.join(tmpDir, "strategy_versions_15m.json");
+
+const tradingA = { takeProfitPct: 20, entryMaxMarketPrice: 0.58, blockedRegimes: ["CHOP"] };
+const tradingB = { takeProfitPct: 20, entryMaxMarketPrice: 0.52, blockedRegimes: ["CHOP"] };
+
+// First call -> registry created, entry appended, returns hash + label "v1".
+const r1 = ensureStrategyVersion(tradingA, { registryPath: regPath });
+assert.equal(typeof r1.hash, "string", "ensureStrategyVersion returns hash");
+assert.equal(r1.label, "v1", "first label is v1");
+assert.equal(r1.created, true, "first call reports created=true");
+assert.ok(fs.existsSync(regPath), "registry file written");
+
+// Re-running with the same config is a no-op (no duplicate row).
+const r2 = ensureStrategyVersion(tradingA, { registryPath: regPath });
+assert.equal(r2.hash, r1.hash, "same config returns same hash");
+assert.equal(r2.label, "v1", "label unchanged on no-op");
+assert.equal(r2.created, false, "second call reports created=false");
+const after2 = loadRegistry(regPath);
+assert.equal(after2.length, 1, "no duplicate row appended");
+
+// Different config -> new entry "v2".
+const r3 = ensureStrategyVersion(tradingB, { registryPath: regPath });
+assert.notEqual(r3.hash, r1.hash, "different config -> different hash");
+assert.equal(r3.label, "v2", "next label is v2");
+assert.equal(r3.created, true);
+const after3 = loadRegistry(regPath);
+assert.equal(after3.length, 2, "two entries now");
+
+// REGISTRY_LATEST_VERSION exists
+assert.equal(typeof REGISTRY_LATEST_VERSION, "number");
+
+// Cleanup
+fs.rmSync(tmpDir, { recursive: true, force: true });
+
+console.log("OK strategy registry smoke");
