@@ -519,7 +519,7 @@ async function main() {
               entryMaxMarketPrice: CONFIG.trading.entryMaxMarketPrice,
               marketSlug: simResult.marketSlug,
               botLabel: "5m",
-              onTrade: ({ entryPrice, invested, shares, timestamp }) => {
+              onTrade: ({ entryPrice, invested, shares, timestamp, txHash }) => {
                 realTradeLog.recordEntry({
                   side: simResult.side,
                   marketSlug: simResult.marketSlug,
@@ -528,6 +528,8 @@ async function main() {
                   btcAtEntry: currentPrice,
                   marketUpAtEntry: marketUp,
                   marketDownAtEntry: marketDown,
+                  txHash,
+                  feeRate: CONFIG.trading.feeRate,
                 });
               },
             });
@@ -540,8 +542,8 @@ async function main() {
               exitReason: simResult.exitReason ?? "SIM_EXIT",
               marketSlug: simResult.marketSlug,
               botLabel: "5m",
-              onTrade: ({ exitPrice, pnl, roi, exitReason, timestamp }) => {
-                realTradeLog.recordExit({ exitPrice, pnl, roi, exitReason, timestamp });
+              onTrade: ({ exitPrice, pnl, roi, exitReason, timestamp, txHash }) => {
+                realTradeLog.recordExit({ exitPrice, pnl, roi, exitReason, timestamp, txHash });
               },
             });
           }

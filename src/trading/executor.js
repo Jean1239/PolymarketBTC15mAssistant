@@ -161,6 +161,12 @@ export async function executeRealBuy({ trading, poly, side, simDecisionPrice, ta
   const shares = chainBalance > 0 ? chainBalance : fill.shares;
   const investedActual = fill.collateral;
   const entryPrice = fill.avgFillPrice;
+  // CLOB V2 reports `transactionsHashes` (plural) — there can be multiple if
+  // the FAK matched across several maker orders. Use the first as the primary
+  // anchor for /activity lookups; the full list is logged for audit.
+  const txHash = Array.isArray(result.order?.transactionsHashes) && result.order.transactionsHashes.length > 0
+    ? result.order.transactionsHashes[0]
+    : null;
 
   recordBuy({ side, tokenId, shares, entryPrice, invested: investedActual, marketSlug, orderId });
 
@@ -179,6 +185,7 @@ export async function executeRealBuy({ trading, poly, side, simDecisionPrice, ta
   onTrade?.({
     action: "BUY", side, marketSlug,
     entryPrice, invested: investedActual, shares,
+    txHash,
     timestamp: Date.now(),
   });
 
@@ -244,6 +251,9 @@ export async function executeRealSell({ trading, poly, simDecisionPrice, slippag
   const pnl = collateralReceived - pos.invested;
   const roi = pos.invested > 0 ? (pnl / pos.invested) * 100 : 0;
   const sign = pnl >= 0 ? "+" : "";
+  const txHash = Array.isArray(result.order?.transactionsHashes) && result.order.transactionsHashes.length > 0
+    ? result.order.transactionsHashes[0]
+    : null;
 
   // Verify how much of the position remains on-chain after the fill. If the
   // FAK only partially matched, leftover shares stay on-chain and will redeem
@@ -259,6 +269,7 @@ export async function executeRealSell({ trading, poly, simDecisionPrice, slippag
     action: "SELL", side: pos.side, marketSlug,
     entryPrice: pos.entryPrice, exitPrice, invested: pos.invested,
     shares: sharesSold, pnl, roi, exitReason,
+    txHash,
     entryTimestamp: pos.timestamp, timestamp: Date.now(),
   });
 
