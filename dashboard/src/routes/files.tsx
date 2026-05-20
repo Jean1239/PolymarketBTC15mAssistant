@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
 import { useState, useCallback, useRef, useEffect } from "react"
-import { Download, FolderArchive, FileSpreadsheet, FileJson, FileText, AlertCircle, Package, Eye } from "lucide-react"
+import { Download, FolderArchive, FileSpreadsheet, FileJson, FileText, AlertCircle, Package, Eye, BarChart3, Filter } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { ClearLogsButton } from "@/components/clear-logs-button"
 import { LogViewer } from "@/components/log-viewer"
 import { api, type LogFile } from "@/lib/api"
+import { useSelectedBot } from "@/lib/selected-bot"
 
 export const Route = createFileRoute("/files")({
   component: FilesPage,
@@ -128,6 +129,17 @@ function FilesPage() {
   const [selectedNames, setSelectedNames] = useState<string[]>([])
   const [downloading, setDownloading] = useState(false)
   const [viewerName, setViewerName] = useState<string | null>(null)
+  const { selected: selectedBot } = useSelectedBot()
+  const [filterByBot, setFilterByBot] = useState(true)
+
+  const filteredData = data && filterByBot
+    ? data.filter((f) => {
+        const n = f.name
+        if (selectedBot === "15m") return n.includes("_15m") || n.includes("15m_")
+        if (selectedBot === "5m") return n.includes("_5m") || n.includes("5m_")
+        return true
+      })
+    : data
 
   const toggleFile = useCallback((name: string) => {
     setSelectedNames((prev) =>
@@ -135,7 +147,7 @@ function FilesPage() {
     )
   }, [])
 
-  const allNames = data?.map((f) => f.name) ?? []
+  const allNames = filteredData?.map((f) => f.name) ?? []
   const allChecked = allNames.length > 0 && allNames.every((n) => selectedNames.includes(n))
   const someChecked = allNames.some((n) => selectedNames.includes(n)) && !allChecked
 
@@ -182,13 +194,33 @@ function FilesPage() {
         <div className="flex items-center gap-2 flex-wrap">
           <FolderArchive className="h-5 w-5 shrink-0" />
           <h1 className="text-lg font-semibold">Arquivos de Log</h1>
-          {data && (
+          {filteredData && (
             <span className="text-xs text-muted-foreground">
-              {data.length} arquivo{data.length !== 1 ? "s" : ""} · {formatSize(totalSize)} total
+              {filteredData.length} arquivo{filteredData.length !== 1 ? "s" : ""}
+              {filterByBot && data && filteredData.length !== data.length ? ` (de ${data.length})` : ""}
+              {" · "}{formatSize(totalSize)} total
             </span>
           )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant={filterByBot ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setFilterByBot((v) => !v)}
+            title={filterByBot ? "Mostrando apenas arquivos do bot selecionado" : "Mostrando todos os arquivos"}
+          >
+            <Filter className="h-4 w-4 mr-2" />
+            {filterByBot ? `Filtro: ${selectedBot}` : "Sem filtro"}
+          </Button>
+          <a
+            href={`/api/analysis-bundle?bot=${selectedBot}`}
+            download={`polymarket-analysis-${selectedBot}.zip`}
+          >
+            <Button variant="default" size="sm" title="Bundle pronto para análise no Python (ticks, sim trades, real trades, strategy versions, manifest)">
+              <BarChart3 className="h-4 w-4 mr-2" />
+              Bundle análise ({selectedBot})
+            </Button>
+          </a>
           <ClearLogsButton />
           {selectedNames.length > 0 && (
             <Button variant="secondary" size="sm" onClick={downloadSelected} disabled={downloading}>
@@ -257,7 +289,7 @@ function FilesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.map((file) => (
+                  {filteredData?.map((file) => (
                     <FileRow
                       key={file.name}
                       file={file}
