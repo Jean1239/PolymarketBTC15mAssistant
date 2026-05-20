@@ -219,22 +219,7 @@ function OverviewPage() {
           <h1 className="text-lg font-semibold">Overview</h1>
           <span className="text-xs text-muted-foreground">refreshes every 30s</span>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 rounded-md border border-border bg-card p-0.5">
-            {RANGES.map((r) => (
-              <Button
-                key={r.key}
-                size="sm"
-                variant={range === r.key ? "secondary" : "ghost"}
-                className="h-7 px-2 text-xs"
-                onClick={() => setRange(r.key)}
-              >
-                {r.label}
-              </Button>
-            ))}
-          </div>
-          <ClearLogsButton />
-        </div>
+        <ClearLogsButton />
       </div>
 
       <TradeEventsCard />
@@ -243,10 +228,25 @@ function OverviewPage() {
         <Card><CardContent className="p-6 text-muted-foreground text-sm">Nenhum bot ativo no momento.</CardContent></Card>
       ) : (
         <Tabs value={selected} onValueChange={(v) => setSelected(v as "15m" | "5m")}>
-          <TabsList>
-            {show15 && <TabsTrigger value="15m">15-minute bot</TabsTrigger>}
-            {show5 && <TabsTrigger value="5m">5-minute bot</TabsTrigger>}
-          </TabsList>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <TabsList>
+              {show15 && <TabsTrigger value="15m">15-minute bot</TabsTrigger>}
+              {show5 && <TabsTrigger value="5m">5-minute bot</TabsTrigger>}
+            </TabsList>
+            <div className="flex items-center gap-1 rounded-md border border-border bg-card p-0.5">
+              {RANGES.map((r) => (
+                <Button
+                  key={r.key}
+                  size="sm"
+                  variant={range === r.key ? "secondary" : "ghost"}
+                  className="h-7 px-2 text-xs"
+                  onClick={() => setRange(r.key)}
+                >
+                  {r.label}
+                </Button>
+              ))}
+            </div>
+          </div>
           {show15 && (
             <TabsContent value="15m" className="mt-4">
               <BotOverview stats={data["15m"]} label="15m" />
