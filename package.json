@@ -15,7 +15,8 @@
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "backfill:strategy": "node scripts/backfillStrategyHash.js",
-    "smoke:strategy": "node scripts/smokeTestStrategy.js"
+    "smoke:strategy": "node scripts/smokeTestStrategy.js",
+    "smoke:bundle": "node scripts/smokeTestAnalysisBundle.js"
   },
   "dependencies": {
     "@polymarket/clob-client-v2": "^1.0.6",
