@@ -6,6 +6,7 @@ RUN npm ci --omit=dev
 
 COPY src/ ./src/
 COPY scripts/ ./scripts/
+COPY STRATEGY_LOG.md ./
 COPY entrypoint.sh /entrypoint.sh
 
 RUN chmod +x /entrypoint.sh && mkdir -p logs
