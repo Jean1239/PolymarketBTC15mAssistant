@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TradesRouteImport } from './routes/trades'
+import { Route as StrategiesRouteImport } from './routes/strategies'
 import { Route as SignalsRouteImport } from './routes/signals'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as FilesRouteImport } from './routes/files'
@@ -18,6 +19,11 @@ import { Route as IndexRouteImport } from './routes/index'
 const TradesRoute = TradesRouteImport.update({
   id: '/trades',
   path: '/trades',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StrategiesRoute = StrategiesRouteImport.update({
+  id: '/strategies',
+  path: '/strategies',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SignalsRoute = SignalsRouteImport.update({
@@ -46,6 +52,7 @@ export interface FileRoutesByFullPath {
   '/files': typeof FilesRoute
   '/login': typeof LoginRoute
   '/signals': typeof SignalsRoute
+  '/strategies': typeof StrategiesRoute
   '/trades': typeof TradesRoute
 }
 export interface FileRoutesByTo {
@@ -53,6 +60,7 @@ export interface FileRoutesByTo {
   '/files': typeof FilesRoute
   '/login': typeof LoginRoute
   '/signals': typeof SignalsRoute
+  '/strategies': typeof StrategiesRoute
   '/trades': typeof TradesRoute
 }
 export interface FileRoutesById {
@@ -61,14 +69,22 @@ export interface FileRoutesById {
   '/files': typeof FilesRoute
   '/login': typeof LoginRoute
   '/signals': typeof SignalsRoute
+  '/strategies': typeof StrategiesRoute
   '/trades': typeof TradesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/files' | '/login' | '/signals' | '/trades'
+  fullPaths: '/' | '/files' | '/login' | '/signals' | '/strategies' | '/trades'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/files' | '/login' | '/signals' | '/trades'
-  id: '__root__' | '/' | '/files' | '/login' | '/signals' | '/trades'
+  to: '/' | '/files' | '/login' | '/signals' | '/strategies' | '/trades'
+  id:
+    | '__root__'
+    | '/'
+    | '/files'
+    | '/login'
+    | '/signals'
+    | '/strategies'
+    | '/trades'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -76,6 +92,7 @@ export interface RootRouteChildren {
   FilesRoute: typeof FilesRoute
   LoginRoute: typeof LoginRoute
   SignalsRoute: typeof SignalsRoute
+  StrategiesRoute: typeof StrategiesRoute
   TradesRoute: typeof TradesRoute
 }
 
@@ -86,6 +103,13 @@ declare module '@tanstack/react-router' {
       path: '/trades'
       fullPath: '/trades'
       preLoaderRoute: typeof TradesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/strategies': {
+      id: '/strategies'
+      path: '/strategies'
+      fullPath: '/strategies'
+      preLoaderRoute: typeof StrategiesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/signals': {
@@ -124,6 +148,7 @@ const rootRouteChildren: RootRouteChildren = {
   FilesRoute: FilesRoute,
   LoginRoute: LoginRoute,
   SignalsRoute: SignalsRoute,
+  StrategiesRoute: StrategiesRoute,
   TradesRoute: TradesRoute,
 }
 export const routeTree = rootRouteImport
