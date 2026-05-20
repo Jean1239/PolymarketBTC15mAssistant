@@ -356,3 +356,117 @@ if not current_trades_recorded.empty:
     plt.xticks(rotation=20, ha="right")
     plt.tight_layout()
 
+# %% [markdown]
+# ## 5. Indicator hit-rate
+#
+# Buckets each indicator and computes settled win-rate for ticks where a signal fired.
+# Highlights buckets where WR < 50% — those are conditions where the current scoring
+# should probably down-weight that indicator (or block entries entirely).
+
+# %%
+def settled_view(ticks_df: pd.DataFrame) -> pd.DataFrame:
+    df = ticks_df[ticks_df["outcome"].isin(["UP", "DOWN"])].copy()
+    df = df[df["signal"].isin(["UP", "DOWN"])]
+    df["hour_utc"] = df["timestamp"].dt.hour
+    df["hit"] = (df["signal"] == df["outcome"]).astype(int)
+    return df
+
+def hit_rate_by_bucket(df: pd.DataFrame, col: str, q: int = 6) -> pd.DataFrame:
+    if df[col].dtype.kind in "biufc":
+        try:
+            bucket = pd.qcut(df[col], q=q, duplicates="drop")
+        except ValueError:
+            bucket = df[col]
+    else:
+        bucket = df[col].astype(str)
+    g = df.assign(_b=bucket).groupby("_b", observed=True)["hit"]
+    res = g.agg(n="size", wr="mean").reset_index().rename(columns={"_b": col})
+    return res
+
+settled = settled_view(ticks)
+print(f"Settled ticks with a signal: {len(settled):,}")
+print(f"Overall hit-rate: {settled['hit'].mean():.3f}")
+
+candidate_cols = ["rsi", "ofi_1m", "ha_count", "vwap_dist_pct", "btc_vs_ptb",
+                  "regime", "hour_utc", "market_up", "market_down"]
+present = [c for c in candidate_cols if c in settled.columns]
+print(f"\nIndicators present in tick log: {present}")
+
+for col in present:
+    print(f"\n--- {col} ---")
+    print(hit_rate_by_bucket(settled, col).to_string(index=False))
+
+# %% [markdown]
+# ## 6. Strategy comparison
+#
+# Picks two `config_hash` values from the registry and compares them on the union of
+# their trade windows. Useful for measuring the effect of a single config change.
+
+# %%
+def metrics(df: pd.DataFrame) -> dict:
+    if df is None or df.empty:
+        return {"trades": 0, "wr": 0.0, "pnl": 0.0, "pf": float("nan"), "max_dd": 0.0}
+    wins = df[df["pnl"] > 0]["pnl"].sum()
+    losses = -df[df["pnl"] <= 0]["pnl"].sum()
+    cum = df.sort_values("exit_time")["pnl"].cumsum()
+    drawdown = (cum - cum.cummax()).min() if len(cum) else 0.0
+    return {
+        "trades": len(df),
+        "wr": float((df["pnl"] > 0).mean()),
+        "pnl": float(df["pnl"].sum()),
+        "pf": float(wins / losses) if losses > 0 else float("inf"),
+        "max_dd": float(drawdown),
+    }
+
+print("Available strategies:")
+for _, v in versions_df.iterrows():
+    print(f"  {v['hash'][:8]}  {v.get('label', '')}")
+
+# Edit these two hashes to compare different strategies.
+if len(versions_df) >= 2:
+    HASH_A = versions_df.iloc[-2]["hash"]
+else:
+    HASH_A = versions_df.iloc[0]["hash"]
+HASH_B = versions_df.iloc[-1]["hash"]
+
+a = sim_trades[sim_trades["config_hash"] == HASH_A]
+b = sim_trades[sim_trades["config_hash"] == HASH_B]
+print(f"\nA = {HASH_A[:8]}  trades={len(a)}")
+print(f"B = {HASH_B[:8]}  trades={len(b)}")
+
+compare = pd.DataFrame([
+    {"strategy": HASH_A[:8], **metrics(a)},
+    {"strategy": HASH_B[:8], **metrics(b)},
+])
+print(compare.to_string(index=False))
+
+# %% [markdown]
+# ## 7. Fee + delay impact
+#
+# Buckets the slippage + fee drag by hour and entry price band. Surfaces conditions
+# where the real-vs-sim gap is largest — those are good candidates for blocked-hour
+# rules or tighter entry price bands.
+
+# %%
+if real_trades is None or real_trades.empty:
+    print("No real trades — section 7 skipped.")
+else:
+    key_cols = ["entry_time", "market_slug"]
+    joined = sim_trades.merge(real_trades, on=key_cols, how="inner", suffixes=("_sim", "_real"))
+    joined["hour_utc"] = joined["entry_time"].dt.hour
+    joined["drag"] = joined["pnl_sim"] - joined["pnl_real"]
+    joined["entry_band"] = pd.cut(joined["entry_price_real"], bins=[0, 0.45, 0.50, 0.55, 0.60, 1.0])
+
+    print("Drag by hour UTC:")
+    print(joined.groupby("hour_utc")["drag"].agg(["count", "sum", "mean"]).to_string())
+
+    print("\nDrag by entry price band:")
+    print(joined.groupby("entry_band", observed=True)["drag"].agg(["count", "sum", "mean"]).to_string())
+
+    fig, ax = plt.subplots(figsize=(9, 4))
+    by_hour = joined.groupby("hour_utc")["drag"].sum().reset_index()
+    sns.barplot(data=by_hour, x="hour_utc", y="drag", ax=ax)
+    ax.set_title(f"Total drag (sim PnL - real PnL) by hour UTC ({BOT})")
+    ax.axhline(0, color="black", lw=0.5)
+    plt.tight_layout()
+
