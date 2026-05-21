@@ -187,6 +187,33 @@ async function main() {
       const ofi1mVal = ofiData.ofi1m?.ofi ?? null;
       let rec = decide5m({ remainingMinutes: timeLeftMin, edgeUp: edge.edgeUp, edgeDown: edge.edgeDown, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, marketUp, marketDown, heikenColor: consec.color, ofi1m: ofi1mVal, feeRate: CONFIG.trading.feeRate });
 
+      // BTC-direction alignment gate. Empirically, picking a side that
+      // fights the current BTC-vs-priceToBeat sign is a losing trade (see
+      // CONFIG.trading.requireBtcAlignment comment for the sample). The
+      // priceLatch is read here purely for the gate; the same value is read
+      // again below for display/journal and remains canonical there.
+      if (rec.action === "ENTER" && CONFIG.trading.requireBtcAlignment) {
+        const _btcPriceForGate = chainlink?.price ?? null;
+        const _slugForGate = poly.ok ? String(poly.market?.slug ?? "") : "";
+        const _startMsForGate = poly.ok && poly.market?.eventStartTime
+          ? new Date(poly.market.eventStartTime).getTime()
+          : null;
+        const _ptbForGate = priceLatch.update({
+          marketSlug: _slugForGate,
+          currentPrice: _btcPriceForGate,
+          marketStartMs: _startMsForGate,
+          market: poly.market ?? null,
+        });
+        if (_btcPriceForGate !== null && _ptbForGate !== null) {
+          const _btcVsPtb = _btcPriceForGate - _ptbForGate;
+          const _againstUp = rec.side === "UP" && _btcVsPtb < 0;
+          const _againstDown = rec.side === "DOWN" && _btcVsPtb > 0;
+          if (_againstUp || _againstDown) {
+            rec = { action: "NO_TRADE", side: null, phase: rec.phase, reason: "side_against_btc" };
+          }
+        }
+      }
+
       // ── Trading ───────────────────────────────────────────────────────────
       const marketSlugNow   = poly.ok ? String(poly.market?.slug ?? "") : "";
       const conditionIdNow  = poly.ok ? (poly.market?.conditionId ?? null) : null;

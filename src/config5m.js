@@ -81,5 +81,16 @@ export const CONFIG = {
     timeDecayMinLossPct: Number(process.env.TRADE_TIME_DECAY_MIN_LOSS_PCT_5M || "15"),
     // High-conviction sizing disabled by default on 5m — higher noise per trade.
     highConvictionMultiplier: Number(process.env.TRADE_HIGH_CONVICTION_MULT_5M || "1"),
+    // BTC-direction alignment gate: block entries whose side fights the
+    // current BTC-vs-priceToBeat sign. Empirical from 548 real trades
+    // (2026-05-14 → 2026-05-20):
+    //   DOWN_against_BTC: n=57  WR=40.35%  Σpnl=-$12.04
+    //   UP_against_BTC:   n=84  WR=50.00%  Σpnl=-$3.82
+    //   UP_with_BTC:      n=185 WR=53.51%  Σpnl=+$6.39
+    //   DOWN_with_BTC:    n=222 WR=55.41%  Σpnl=+$16.90
+    // Cutting the two "against" buckets removes 141 trades (-$15.86 sum),
+    // pushing the strategy from -$10.89 net to +$9.70 net over the same
+    // window. Set false to revert to the unfiltered behaviour.
+    requireBtcAlignment: (process.env.TRADE_REQUIRE_BTC_ALIGN_5M ?? "true").toLowerCase() === "true",
   },
 };
