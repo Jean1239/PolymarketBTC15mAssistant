@@ -22,3 +22,10 @@ export function booksChanged(prev, next) {
   if (!prev) return true;
   return JSON.stringify(prev) !== JSON.stringify(next);
 }
+
+/**
+ * Serializa um tick de orderbook como uma linha JSON (sem newline).
+ */
+export function buildLine({ ts, slug, timeLeftMin, up, down }) {
+  return JSON.stringify({ ts, slug, timeLeftMin, up, down });
+}

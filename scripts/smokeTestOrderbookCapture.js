@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { trimBook, booksChanged } from "../src/backtest/orderbookCapture.js";
+import { trimBook, booksChanged, buildLine } from "../src/backtest/orderbookCapture.js";
 
 // trimBook: ordena best-first e corta no depthLevels
 const raw = {
@@ -26,3 +26,16 @@ assert.equal(booksChanged(snapA, snapC), true, "size diferente → true");
 assert.equal(booksChanged(null, snapA), true, "sem snapshot anterior → true");
 
 console.log("OK booksChanged");
+
+// buildLine: serializa uma linha JSONL (sem newline)
+const line = buildLine({
+  ts: "2026-05-22T12:00:00.000Z", slug: "btc-updown-5m-1",
+  timeLeftMin: 3.2, up: { bids: [[0.5, 1]], asks: [] }, down: { bids: [], asks: [] },
+});
+const parsed = JSON.parse(line);
+assert.equal(parsed.slug, "btc-updown-5m-1");
+assert.equal(parsed.timeLeftMin, 3.2);
+assert.deepEqual(parsed.up.bids, [[0.5, 1]]);
+assert.equal(line.includes("\n"), false, "buildLine não inclui newline");
+
+console.log("OK buildLine");
