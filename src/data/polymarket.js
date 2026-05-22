@@ -72,6 +72,7 @@ export async function fetchPolymarketSnapshot(resolveMarket, polyConfig) {
   const emptyBook = { bestBid: null, bestAsk: null, spread: null, bidLiquidity: null, askLiquidity: null };
   let upBuy = null, downBuy = null;
   let upBookSummary = { ...emptyBook }, downBookSummary = { ...emptyBook };
+  let upRawBook = null, downRawBook = null;
 
   try {
     const [yesBuy, noBuy, upBook, downBook] = await Promise.all([
@@ -84,6 +85,8 @@ export async function fetchPolymarketSnapshot(resolveMarket, polyConfig) {
     downBuy = noBuy;
     upBookSummary = summarizeOrderBook(upBook);
     downBookSummary = summarizeOrderBook(downBook);
+    upRawBook = upBook;
+    downRawBook = downBook;
   } catch {
     upBookSummary = {
       bestBid: Number(market.bestBid) || null,
@@ -104,6 +107,7 @@ export async function fetchPolymarketSnapshot(resolveMarket, polyConfig) {
     tokens: { upTokenId, downTokenId },
     prices: { up: upBuy ?? gammaYes, down: downBuy ?? gammaNo },
     orderbook: { up: upBookSummary, down: downBookSummary },
+    rawBook: { up: upRawBook, down: downRawBook },
   };
 }
 
