@@ -47,6 +47,22 @@ WR, por versão, por fase, drawdown, train vs test); o humano decide ship/no-shi
 Consequência: backtest do **modelo de fill** só funciona em dados capturados
 após o logger de orderbook entrar no ar. Por isso o logger é a Fase 0.
 
+### Intervalo de tempo backtestável
+
+Cada classe de mudança alcança um intervalo diferente, conforme o dado que
+precisa:
+
+| Classe de mudança | Dado necessário | Intervalo backtestável |
+|---|---|---|
+| Config / gates / engine | indicadores recordados nos CSV | toda a janela de logs existente — do log mais antigo (nuvem) até agora |
+| Indicadores de preço (EMA/RSI/HA/VWAP) | klines Binance REST | anos pra trás; limite real = até onde a timeline de mercados nos CSV vai |
+| OFI (order flow) | aggTrades brutos | recente via REST (semanas); histórico fundo via dumps diários `data.binance.vision` |
+| **Modelo de fill / slippage** | profundidade de orderbook | **só do deploy da Fase 0 pra frente** — zero histórico |
+
+Restrição que vale repetir: **backtest de fill é cego antes do deploy do
+logger.** Quanto antes a Fase 0 subir, mais cedo a janela de 90 dias começa a
+acumular.
+
 ## Abordagem escolhida — B: um caminho de código
 
 Bot live e backtest chamam a **mesma** função `pipeline5m`. Difere só a *fonte*
@@ -123,8 +139,42 @@ JSONL append-only em `logs/orderbook_5m.jsonl`, uma linha por tick:
 { ts, slug, timeLeftMin, up:{bids:[[px,sz],...], asks:[...]}, down:{...} }
 ```
 
-Rotação diária. Fire-and-forget — não bloqueia o poll, zero impacto no bot.
-**Deve entrar no ar primeiro** — é o único dado insubstituível.
+Fire-and-forget — não bloqueia o poll, zero impacto no bot. **Deve entrar no
+ar primeiro** — é o único dado insubstituível.
+
+**Decisões de gravação:**
+
+- **Top-10 níveis por lado.** `summarizeOrderBook` já aceita `depthLevels`; o
+  logger eleva para 10 e grava os níveis crus `[price, size]`. Fill model de
+  trade de ~$5 nunca caminha mais que 1–2¢ de profundidade — capturar o book
+  inteiro (~50 níveis) seria 4–5× o espaço sem ganho.
+- **Dedup.** Grava a linha apenas quando o book mudou em relação ao tick
+  anterior (mesmo mercado). Corta 3–5× — o book não muda a cada segundo.
+- **Rotação diária + gzip.** Ao virar o dia-calendário, o arquivo do dia
+  anterior é fechado e comprimido:
+  ```
+  logs/orderbook_5m.jsonl                ← dia corrente, sendo escrito
+  logs/orderbook_5m_2026-05-21.jsonl.gz  ← dia anterior, fechado
+  ```
+  JSONL de orderbook comprime 8–12× (ladder de preço repetitivo).
+- **Retenção 90 dias.** Os `.gz` com mais de 90 dias são podados
+  automaticamente na rotação. Histórico de fill model = janela móvel de 90 dias.
+
+### Estimativa de espaço em disco
+
+Único consumidor contínuo novo é o `orderbook_5m.jsonl`. Demais dados são sob
+demanda (ver Assembler) e transientes.
+
+| Item | /dia | /mês | Pico (90d retenção) |
+|---|---|---|---|
+| Orderbook top-10 + gzip + dedup | ~1–2 MB | ~30–60 MB | **~150 MB** |
+| Orderbook top-10 + gzip, sem dedup | ~6 MB | ~180 MB | ~540 MB |
+| Saída de runs de backtest (`logs/backtest/`) | transiente | — | poucos MB/run |
+
+Tudo vive no mesmo volume persistente dos CSV + `auth.db` (volume Coolify).
+Com retenção de 90 dias o orderbook fica limitado a ~150 MB — não cresce sem
+limite. **aggTrades histórico não é persistido** — buscado por janela e
+descartado após a run (ver Assembler).
 
 ### Fase 1 — Extrair `pipeline5m`
 
