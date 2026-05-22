@@ -14,3 +14,11 @@ export function trimBook(rawBook, depthLevels = 10) {
     asks: asks.map(norm).filter(valid).sort((a, b) => a[0] - b[0]).slice(0, depthLevels),
   };
 }
+
+/**
+ * Compara dois snapshots aparados ({up,down}). True se mudaram.
+ */
+export function booksChanged(prev, next) {
+  if (!prev) return true;
+  return JSON.stringify(prev) !== JSON.stringify(next);
+}
