@@ -58,8 +58,20 @@ export const CONFIG = {
     // at 0.50–0.54 lose $5.46 historically. Only 0.55–0.60 zone shows positive PnL.
     // Uses its own env vars so it can differ from the 15m config.
     entryMinMarketPrice: Number(process.env.TRADE_ENTRY_MIN_PRICE_5M || "0.50"),
-    // Lowered from 0.60: dry-run shows entries >= 0.52 are net-losers (-$11.44 vs +$9.86 below).
-    entryMaxMarketPrice: Number(process.env.TRADE_ENTRY_MAX_PRICE_5M || "0.52"),
+    // Lowered 0.52 → 0.51: fee-correct 280-trade run (config bc1547ba,
+    // 2026-05-20→22) shows the 0.52 band is toxic — n=121, WR 43.8%,
+    // net -$23.14, negative on all 3 days. Breakeven WR at 0.52 is 53.8%
+    // (fee = 0.07·(1-p) raises the bar with the entry price). The 0.50/0.51
+    // bands netted +$24.76 at 58-62% WR. Dropping 0.52 lifts the strategy
+    // from +$2.56 to +$25.71 net over the same window.
+    entryMaxMarketPrice: Number(process.env.TRADE_ENTRY_MAX_PRICE_5M || "0.51"),
+    // Early-window gate: only enter within the first ~minute of the 5m
+    // market. Same fee-correct run: entries with >=4 min left (held to
+    // settlement) won 58% for +$19.6; entries with <4 min left lost
+    // (3-4 min bucket: WR 41.7%, -$13.2). Late entries chase a move the
+    // market has already priced in. Combined with the 0.51 cap this lifts
+    // net to +$29.66 at 65.2% WR. Set to 0 to disable.
+    entryMinTimeLeftMin: Number(process.env.TRADE_ENTRY_MIN_TIME_LEFT_MIN_5M || "4"),
     // Hours (UTC) during which new entries are blocked.
     //
     // Default emptied 2026-05-17: combined 449-trade dry-run sample shows
