@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { trimBook, booksChanged, buildLine } from "../src/backtest/orderbookCapture.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { trimBook, booksChanged, buildLine, createOrderbookCapture } from "../src/backtest/orderbookCapture.js";
 
 // trimBook: ordena best-first e corta no depthLevels
 const raw = {
@@ -39,3 +42,33 @@ assert.deepEqual(parsed.up.bids, [[0.5, 1]]);
 assert.equal(line.includes("\n"), false, "buildLine não inclui newline");
 
 console.log("OK buildLine");
+
+// createOrderbookCapture: grava, dedup, e ignora book ausente
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "obcap-"));
+const cap = createOrderbookCapture({ dir: tmp, depthLevels: 5 });
+const rawBook = {
+  up:   { bids: [{ price: "0.5", size: "1" }], asks: [{ price: "0.6", size: "1" }] },
+  down: { bids: [{ price: "0.4", size: "1" }], asks: [{ price: "0.5", size: "1" }] },
+};
+cap.record({ slug: "mkt-1", timeLeftMin: 4, rawBook });
+cap.record({ slug: "mkt-1", timeLeftMin: 3, rawBook }); // book idêntico → dedup, não grava
+cap.record({ slug: "mkt-1", timeLeftMin: 2, rawBook: null }); // sem book → ignora
+
+const active = path.join(tmp, "orderbook_5m.jsonl");
+let lines = fs.readFileSync(active, "utf8").trim().split("\n");
+assert.equal(lines.length, 1, "dedup: book idêntico não gera segunda linha");
+
+// book diferente → grava
+const rawBook2 = JSON.parse(JSON.stringify(rawBook));
+rawBook2.up.bids[0].size = "9";
+cap.record({ slug: "mkt-1", timeLeftMin: 1, rawBook: rawBook2 });
+lines = fs.readFileSync(active, "utf8").trim().split("\n");
+assert.equal(lines.length, 2, "book alterado → nova linha");
+
+// troca de mercado sempre grava, mesmo com book idêntico
+cap.record({ slug: "mkt-2", timeLeftMin: 5, rawBook: rawBook2 });
+lines = fs.readFileSync(active, "utf8").trim().split("\n");
+assert.equal(lines.length, 3, "novo slug → nova linha");
+
+fs.rmSync(tmp, { recursive: true, force: true });
+console.log("OK createOrderbookCapture record");
