@@ -31,6 +31,7 @@ import { createPriceLatch } from "./trading/priceLatch.js";
 import { createTradeTracker } from "./trading/tracker.js";
 import { createDryRunSimulator5m } from "./dryRun.js";
 import { createOrderbookCapture } from "./backtest/orderbookCapture.js";
+import { runPipeline5m } from "./backtest/pipeline5m.js";
 import { ensureStrategyVersion } from "./strategy/registry.js";
 import { createRedemptionWorker } from "./trading/redeem.js";
 import { createRealTradeLogger } from "./trading/realTradeLog.js";
@@ -173,61 +174,44 @@ async function main() {
         market: poly.market ?? null,
       });
 
-      // ── Indicators ────────────────────────────────────────────────────────
-      const vwapCandles = klines1m.slice(-CONFIG.vwapCandleWindow);
-      const allCloses   = klines1m.map((c) => c.close);
-
-      const vwapSeries = computeVwapSeries(vwapCandles);
-      const vwapNow    = vwapSeries[vwapSeries.length - 1];
-      const lookback   = CONFIG.vwapSlopeLookbackMinutes;
-      const vwapSlope  = vwapSeries.length >= lookback
-        ? (vwapNow - vwapSeries[vwapSeries.length - lookback]) / lookback
-        : null;
-      const vwapDist   = vwapNow ? (lastPrice - vwapNow) / vwapNow : null;
-      const rsiNow = computeRsi(allCloses, CONFIG.rsiPeriod);
-      const rsiSeries = [];
-      for (let i = 0; i < allCloses.length; i++) {
-        const r = computeRsi(allCloses.slice(0, i + 1), CONFIG.rsiPeriod);
-        if (r !== null) rsiSeries.push(r);
-      }
-      const rsiSlope = slopeLast(rsiSeries, 3);
-
-      const emaCross      = computeEmaCross(allCloses, CONFIG.emaCrossFast, CONFIG.emaCrossSlow);
-      const ha            = computeHeikenAshi(klines1m.slice(-10));
-      const consec        = countConsecutive(ha);
-      const momentum      = computeMomentum(klines1m);
-      const momentumScore = scoreMomentum(momentum);
-      const orderFlowScore = scoreOrderFlow(ofiData);
-
-      // ── Signal ────────────────────────────────────────────────────────────
-      const scored = scoreDirection5m({
-        orderFlow: orderFlowScore, momentumScore, emaCross,
-        rsi: rsiNow, rsiSlope,
-        heikenColor: consec.color, heikenCount: consec.count,
-        price: lastPrice, vwap: vwapNow, vwapSlope,
-      });
-
-      const timeAware  = applyTimeAwareness5m(scored.rawUp, timeLeftMin, CONFIG.candleWindowMinutes);
+      // ── Pipeline (compartilhado com o backtest) ───────────────────────────
+      const pipelineConfig = {
+        vwapCandleWindow: CONFIG.vwapCandleWindow,
+        vwapSlopeLookbackMinutes: CONFIG.vwapSlopeLookbackMinutes,
+        rsiPeriod: CONFIG.rsiPeriod,
+        emaCrossFast: CONFIG.emaCrossFast,
+        emaCrossSlow: CONFIG.emaCrossSlow,
+        candleWindowMinutes: CONFIG.candleWindowMinutes,
+        trading: {
+          feeRate: CONFIG.trading.feeRate,
+          entryMinTimeLeftMin: CONFIG.trading.entryMinTimeLeftMin,
+          requireBtcAlignment: CONFIG.trading.requireBtcAlignment,
+        },
+      };
       const marketUp   = poly.ok ? poly.prices.up   : null;
       const marketDown = poly.ok ? poly.prices.down  : null;
-      const edge = computeEdge({ modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, marketYes: marketUp, marketNo: marketDown });
-      const ofi1mVal = ofiData.ofi1m?.ofi ?? null;
-      let rec = decide5m({ remainingMinutes: timeLeftMin, edgeUp: edge.edgeUp, edgeDown: edge.edgeDown, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, marketUp, marketDown, heikenColor: consec.color, ofi1m: ofi1mVal, feeRate: CONFIG.trading.feeRate, minTimeLeftMin: CONFIG.trading.entryMinTimeLeftMin });
 
-      // BTC-direction alignment gate. Empirically, picking a side that
-      // fights the current BTC-vs-priceToBeat sign is a losing trade (see
-      // CONFIG.trading.requireBtcAlignment comment for the sample).
-      // btcPriceForTick / priceToBeatForTick foram resolvidos acima.
-      if (rec.action === "ENTER" && CONFIG.trading.requireBtcAlignment) {
-        if (btcPriceForTick !== null && priceToBeatForTick !== null) {
-          const _btcVsPtb = btcPriceForTick - priceToBeatForTick;
-          const _againstUp = rec.side === "UP" && _btcVsPtb < 0;
-          const _againstDown = rec.side === "DOWN" && _btcVsPtb > 0;
-          if (_againstUp || _againstDown) {
-            rec = { action: "NO_TRADE", side: null, phase: rec.phase, reason: "side_against_btc" };
-          }
-        }
-      }
+      const pipeline = runPipeline5m(
+        {
+          klines1m, ofiData, lastPrice, timeLeftMin,
+          marketUp, marketDown,
+          btcPrice: btcPriceForTick, priceToBeat: priceToBeatForTick,
+        },
+        pipelineConfig,
+      );
+
+      let rec          = pipeline.rec;
+      const timeAware  = pipeline.timeAware;
+      const edge       = pipeline.edge;
+
+      const rsiNow    = pipeline.indicators.rsi;
+      const rsiSlope  = pipeline.indicators.rsiSlope;
+      const emaCross  = pipeline.indicators.emaCross;
+      const momentum  = pipeline.indicators.momentum;
+      const vwapNow   = pipeline.indicators.vwap;
+      const vwapSlope = pipeline.indicators.vwapSlope;
+      const vwapDist  = pipeline.indicators.vwapDistPct;
+      const consec    = { color: pipeline.indicators.haColor, count: pipeline.indicators.haCount };
 
       // Backtest Fase 1: trace de ground-truth para o golden test.
       if (process.env.BACKTEST_TRACE === "1") {
