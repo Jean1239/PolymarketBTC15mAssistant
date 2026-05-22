@@ -160,6 +160,19 @@ async function main() {
         } catch { /* nunca bloqueia o poll */ }
       }
 
+      // Resolvido uma vez por tick: entradas do pipeline puro (gate de alinhamento BTC).
+      const btcPriceForTick = chainlink?.price ?? null;
+      const slugForTick = poly.ok ? String(poly.market?.slug ?? "") : "";
+      const marketStartMsForTick = poly.ok && poly.market?.eventStartTime
+        ? new Date(poly.market.eventStartTime).getTime()
+        : null;
+      const priceToBeatForTick = priceLatch.update({
+        marketSlug: slugForTick,
+        currentPrice: btcPriceForTick,
+        marketStartMs: marketStartMsForTick,
+        market: poly.market ?? null,
+      });
+
       // ── Indicators ────────────────────────────────────────────────────────
       const vwapCandles = klines1m.slice(-CONFIG.vwapCandleWindow);
       const allCloses   = klines1m.map((c) => c.close);
@@ -203,29 +216,38 @@ async function main() {
 
       // BTC-direction alignment gate. Empirically, picking a side that
       // fights the current BTC-vs-priceToBeat sign is a losing trade (see
-      // CONFIG.trading.requireBtcAlignment comment for the sample). The
-      // priceLatch is read here purely for the gate; the same value is read
-      // again below for display/journal and remains canonical there.
+      // CONFIG.trading.requireBtcAlignment comment for the sample).
+      // btcPriceForTick / priceToBeatForTick foram resolvidos acima.
       if (rec.action === "ENTER" && CONFIG.trading.requireBtcAlignment) {
-        const _btcPriceForGate = chainlink?.price ?? null;
-        const _slugForGate = poly.ok ? String(poly.market?.slug ?? "") : "";
-        const _startMsForGate = poly.ok && poly.market?.eventStartTime
-          ? new Date(poly.market.eventStartTime).getTime()
-          : null;
-        const _ptbForGate = priceLatch.update({
-          marketSlug: _slugForGate,
-          currentPrice: _btcPriceForGate,
-          marketStartMs: _startMsForGate,
-          market: poly.market ?? null,
-        });
-        if (_btcPriceForGate !== null && _ptbForGate !== null) {
-          const _btcVsPtb = _btcPriceForGate - _ptbForGate;
+        if (btcPriceForTick !== null && priceToBeatForTick !== null) {
+          const _btcVsPtb = btcPriceForTick - priceToBeatForTick;
           const _againstUp = rec.side === "UP" && _btcVsPtb < 0;
           const _againstDown = rec.side === "DOWN" && _btcVsPtb > 0;
           if (_againstUp || _againstDown) {
             rec = { action: "NO_TRADE", side: null, phase: rec.phase, reason: "side_against_btc" };
           }
         }
+      }
+
+      // Backtest Fase 1: trace de ground-truth para o golden test.
+      if (process.env.BACKTEST_TRACE === "1") {
+        try {
+          const _traceLine = JSON.stringify({
+            ctx: {
+              klines1m, ofiData, lastPrice, timeLeftMin,
+              marketUp, marketDown,
+              btcPrice: btcPriceForTick, priceToBeat: priceToBeatForTick,
+            },
+            result: {
+              rec,
+              modelUp: timeAware.adjustedUp,
+              modelDown: timeAware.adjustedDown,
+              edgeUp: edge.edgeUp,
+              edgeDown: edge.edgeDown,
+            },
+          });
+          fs.appendFileSync("./logs/pipeline_trace.jsonl", _traceLine + "\n");
+        } catch { /* trace é best-effort */ }
       }
 
       // ── Trading ───────────────────────────────────────────────────────────
