@@ -5,12 +5,19 @@ import { edgeAdjustmentForEntry } from "../fees.js";
 
 export { computeEdge } from "./edge.js";
 
-export function decide5m({ remainingMinutes, edgeUp, edgeDown, modelUp = null, modelDown = null, marketUp = null, marketDown = null, heikenColor = null, ofi1m = null, feeRate = 0 }) {
+export function decide5m({ remainingMinutes, edgeUp, edgeDown, modelUp = null, modelDown = null, marketUp = null, marketDown = null, heikenColor = null, ofi1m = null, feeRate = 0, minTimeLeftMin = 0 }) {
   // Phases tuned for 5-minute window
   const phase = remainingMinutes > 3 ? "EARLY" : remainingMinutes > 1.5 ? "MID" : "LATE";
 
   const baseThreshold = phase === "EARLY" ? 0.04 : phase === "MID" ? 0.12 : 0.25;
   const minProb = phase === "EARLY" ? 0.54 : phase === "MID" ? 0.62 : 0.70;
+
+  // Early-window gate: skip entries past the first ~minute of the market.
+  // Late entries chase an already-priced move and lose (see config5m
+  // entryMinTimeLeftMin). Disabled when minTimeLeftMin <= 0.
+  if (minTimeLeftMin > 0 && remainingMinutes < minTimeLeftMin) {
+    return { action: "NO_TRADE", side: null, phase, reason: `too_late_lt_${minTimeLeftMin}m` };
+  }
 
   if (edgeUp === null || edgeDown === null) {
     return { action: "NO_TRADE", side: null, phase, reason: "missing_market_data" };

@@ -185,7 +185,7 @@ async function main() {
       const marketDown = poly.ok ? poly.prices.down  : null;
       const edge = computeEdge({ modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, marketYes: marketUp, marketNo: marketDown });
       const ofi1mVal = ofiData.ofi1m?.ofi ?? null;
-      let rec = decide5m({ remainingMinutes: timeLeftMin, edgeUp: edge.edgeUp, edgeDown: edge.edgeDown, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, marketUp, marketDown, heikenColor: consec.color, ofi1m: ofi1mVal, feeRate: CONFIG.trading.feeRate });
+      let rec = decide5m({ remainingMinutes: timeLeftMin, edgeUp: edge.edgeUp, edgeDown: edge.edgeDown, modelUp: timeAware.adjustedUp, modelDown: timeAware.adjustedDown, marketUp, marketDown, heikenColor: consec.color, ofi1m: ofi1mVal, feeRate: CONFIG.trading.feeRate, minTimeLeftMin: CONFIG.trading.entryMinTimeLeftMin });
 
       // BTC-direction alignment gate. Empirically, picking a side that
       // fights the current BTC-vs-priceToBeat sign is a losing trade (see
