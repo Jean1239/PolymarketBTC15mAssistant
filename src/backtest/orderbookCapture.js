@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import zlib from "node:zlib";
 
 /**
  * Normaliza e corta um livro cru da CLOB nos top-N níveis, best-first.
@@ -52,6 +53,29 @@ export function createOrderbookCapture({
   let lastSlug = null;
   let currentDate = null;
 
+  function pruneOld() {
+    const cutoff = now().getTime() - retentionDays * 86_400_000;
+    let files;
+    try { files = fs.readdirSync(dir); } catch { return; }
+    for (const f of files) {
+      const m = /^orderbook_5m_(\d{4}-\d{2}-\d{2})\.jsonl\.gz$/.exec(f);
+      if (!m) continue;
+      if (new Date(`${m[1]}T00:00:00Z`).getTime() < cutoff) {
+        try { fs.unlinkSync(path.join(dir, f)); } catch { /* ignora */ }
+      }
+    }
+  }
+
+  function rotate(prevDate) {
+    if (!fs.existsSync(activePath)) return;
+    const raw = fs.readFileSync(activePath);
+    if (raw.length > 0) {
+      fs.writeFileSync(path.join(dir, `orderbook_5m_${prevDate}.jsonl.gz`), zlib.gzipSync(raw));
+    }
+    fs.writeFileSync(activePath, "");
+    pruneOld();
+  }
+
   function record({ slug, timeLeftMin, rawBook }) {
     if (!rawBook) return;
     const up = trimBook(rawBook.up, depthLevels);
@@ -61,9 +85,13 @@ export function createOrderbookCapture({
     // dedup: dentro do mesmo mercado, pula se o book não mudou
     if (slug === lastSlug && !booksChanged(lastCombined, combined)) return;
 
+    const today = now().toISOString().slice(0, 10);
     if (currentDate === null) {
-      currentDate = now().toISOString().slice(0, 10);
+      currentDate = today;
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    } else if (today !== currentDate) {
+      rotate(currentDate);
+      currentDate = today;
     }
 
     const line = buildLine({ ts: now().toISOString(), slug, timeLeftMin, up, down });

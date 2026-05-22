@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import zlib from "node:zlib";
 import { trimBook, booksChanged, buildLine, createOrderbookCapture } from "../src/backtest/orderbookCapture.js";
 
 // trimBook: ordena best-first e corta no depthLevels
@@ -72,3 +73,38 @@ assert.equal(lines.length, 3, "novo slug → nova linha");
 
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log("OK createOrderbookCapture record");
+
+// Rotação: virada de dia gzipa o arquivo do dia anterior
+const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), "obcap-rot-"));
+let fakeNow = new Date("2026-05-20T23:59:00.000Z");
+const cap2 = createOrderbookCapture({
+  dir: tmp2, depthLevels: 5, retentionDays: 90, now: () => fakeNow,
+});
+const rb = {
+  up:   { bids: [{ price: "0.5", size: "1" }], asks: [] },
+  down: { bids: [], asks: [] },
+};
+cap2.record({ slug: "mkt-1", timeLeftMin: 4, rawBook: rb });
+
+fakeNow = new Date("2026-05-21T00:01:00.000Z"); // vira o dia
+const rb2 = JSON.parse(JSON.stringify(rb)); rb2.up.bids[0].size = "2";
+cap2.record({ slug: "mkt-1", timeLeftMin: 3, rawBook: rb2 });
+
+const gz = path.join(tmp2, "orderbook_5m_2026-05-20.jsonl.gz");
+assert.ok(fs.existsSync(gz), "dia anterior foi gzipado");
+const restored = zlib.gunzipSync(fs.readFileSync(gz)).toString("utf8").trim();
+assert.equal(restored.split("\n").length, 1, ".gz contém o tick do dia 20");
+const activeNow = fs.readFileSync(path.join(tmp2, "orderbook_5m.jsonl"), "utf8").trim();
+assert.equal(activeNow.split("\n").length, 1, "arquivo ativo só tem o tick do dia 21");
+
+// Retenção: .gz mais velho que retentionDays é podado na rotação
+fs.writeFileSync(path.join(tmp2, "orderbook_5m_2026-01-01.jsonl.gz"), zlib.gzipSync("x"));
+fakeNow = new Date("2026-05-22T00:01:00.000Z"); // outra virada
+cap2.record({ slug: "mkt-1", timeLeftMin: 2, rawBook: rb });
+assert.ok(!fs.existsSync(path.join(tmp2, "orderbook_5m_2026-01-01.jsonl.gz")),
+  ".gz com >90 dias foi podado");
+assert.ok(fs.existsSync(path.join(tmp2, "orderbook_5m_2026-05-21.jsonl.gz")),
+  ".gz recente foi mantido");
+
+fs.rmSync(tmp2, { recursive: true, force: true });
+console.log("OK rotação + retenção");
