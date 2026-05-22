@@ -74,8 +74,8 @@ function TradesTable({ trades }: { trades: Trade[] }) {
           <TableBody>
             {sorted.map((t, i) => {
               const roi = t.roi_pct
-              const pnl = t.pnl
               const fee = t.fee ?? 0
+              const pnl = t.gross_pnl ?? t.pnl
               const pnlNet = t.pnl_net ?? pnl - fee
               return (
                 <TableRow key={i}>

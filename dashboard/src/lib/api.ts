@@ -18,6 +18,7 @@ export interface Trade {
   market_up_at_entry: number
   market_down_at_entry: number
   fee: number
+  gross_pnl: number
   pnl_net: number
   config_hash?: string
 }

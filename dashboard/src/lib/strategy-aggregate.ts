@@ -160,7 +160,7 @@ export function aggregateByVersion({
     return {
       version: v,
       trades: rows.length,
-      pnlGross: sumKey(rows, "pnl"),
+      pnlGross: sumKey(rows, "gross_pnl"),
       pnlNet: rows.reduce((s, r) => s + (r.pnl_net ?? r.pnl), 0),
       winRate: rows.length ? rows.filter(r => (r.pnl_net ?? r.pnl) > 0).length / rows.length : 0,
       profitFactor: profitFactor(rows),

@@ -51,11 +51,12 @@ const FEE_RATE = (() => {
 const FEE_EXPONENT = 1;
 
 function feeForTrade(t) {
-  const csvEntry = parseFloat(t.entry_fee_model);
-  const csvExit = parseFloat(t.exit_fee_model);
-  if (Number.isFinite(csvEntry) || Number.isFinite(csvExit)) {
-    return (Number.isFinite(csvEntry) ? csvEntry : 0)
-         + (Number.isFinite(csvExit) ? csvExit : 0);
+  // Sim trades (dryRun.js) log entry_fee/exit_fee; real trades
+  // (realTradeLog.js) log entry_fee_model/exit_fee_model. Accept either name.
+  const csvEntry = [t.entry_fee, t.entry_fee_model].map(parseFloat).find(Number.isFinite);
+  const csvExit = [t.exit_fee, t.exit_fee_model].map(parseFloat).find(Number.isFinite);
+  if (csvEntry != null || csvExit != null) {
+    return (csvEntry ?? 0) + (csvExit ?? 0);
   }
   const shares = Number(t.shares);
   const entryFee = takerFee(shares, Number(t.entry_price), FEE_RATE);
@@ -291,7 +292,18 @@ function coerceTrades(rows) {
     };
     const fee = feeForTrade(t);
     t.fee = parseFloat(fee.toFixed(4));
-    t.pnl_net = t.pnl != null ? parseFloat((t.pnl - fee).toFixed(4)) : null;
+    // `pnl` semantics differ by CSV schema:
+    //  - New rows (dryRun.js / realTradeLog.js) log `gross_pnl` (pre-fee) and
+    //    write `pnl` already NET of fees.
+    //  - Legacy rows have no `gross_pnl`; their `pnl` is gross (pre-fee).
+    // Subtracting the fee from an already-net `pnl` double-counted it and
+    // understated post-fee strategies (v1 showed -$5.58 instead of +$2.56).
+    // Always derive net from gross so it stays a single, consistent formula.
+    const grossPnl = parseNum(r.gross_pnl);
+    t.gross_pnl = grossPnl != null ? grossPnl : t.pnl;
+    t.pnl_net = t.gross_pnl != null
+      ? parseFloat((t.gross_pnl - fee).toFixed(4))
+      : null;
     return t;
   });
 }
@@ -369,13 +381,18 @@ function computeStats(trades) {
     };
   }
 
-  const wins = trades.filter((t) => t.pnl > 0).length;
+  // `pnl` column is gross on legacy rows, net on new rows — never sum it
+  // directly. Use the schema-normalized fields from coerceTrades instead.
+  const grossOf = (t) => t.gross_pnl ?? t.pnl ?? 0;
+  const netOf = (t) => t.pnl_net ?? t.pnl ?? 0;
+
+  const wins = trades.filter((t) => netOf(t) > 0).length;
   const losses = trades.length - wins;
-  const totalPnl = trades.reduce((s, t) => s + t.pnl, 0);
-  const winTrades = trades.filter((t) => t.pnl > 0);
-  const lossTrades = trades.filter((t) => t.pnl <= 0);
-  const avgWin = winTrades.length ? winTrades.reduce((s, t) => s + t.pnl, 0) / winTrades.length : 0;
-  const avgLoss = lossTrades.length ? lossTrades.reduce((s, t) => s + t.pnl, 0) / lossTrades.length : 0;
+  const totalPnl = trades.reduce((s, t) => s + grossOf(t), 0);
+  const winTrades = trades.filter((t) => netOf(t) > 0);
+  const lossTrades = trades.filter((t) => netOf(t) <= 0);
+  const avgWin = winTrades.length ? winTrades.reduce((s, t) => s + netOf(t), 0) / winTrades.length : 0;
+  const avgLoss = lossTrades.length ? lossTrades.reduce((s, t) => s + netOf(t), 0) / lossTrades.length : 0;
   const profitFactor = lossTrades.length && avgLoss !== 0
     ? Math.abs(avgWin * winTrades.length) / Math.abs(avgLoss * lossTrades.length)
     : Infinity;
@@ -386,17 +403,17 @@ function computeStats(trades) {
     const r = t.exit_reason || "UNKNOWN";
     if (!byReason[r]) byReason[r] = { count: 0, pnl: 0 };
     byReason[r].count++;
-    byReason[r].pnl += t.pnl;
+    byReason[r].pnl += netOf(t);
     const s = t.side || "UNKNOWN";
     if (!bySide[s]) bySide[s] = { count: 0, wins: 0, pnl: 0 };
     bySide[s].count++;
-    bySide[s].pnl += t.pnl;
-    if (t.pnl > 0) bySide[s].wins++;
+    bySide[s].pnl += netOf(t);
+    if (netOf(t) > 0) bySide[s].wins++;
   }
 
   let maxWinStreak = 0, maxLossStreak = 0, curWin = 0, curLoss = 0;
   for (const t of trades) {
-    if (t.pnl > 0) { curWin++; curLoss = 0; maxWinStreak = Math.max(maxWinStreak, curWin); }
+    if (netOf(t) > 0) { curWin++; curLoss = 0; maxWinStreak = Math.max(maxWinStreak, curWin); }
     else { curLoss++; curWin = 0; maxLossStreak = Math.max(maxLossStreak, curLoss); }
   }
 
@@ -404,8 +421,8 @@ function computeStats(trades) {
   let cum = 0;
   let cumNet = 0;
   const pnlCurve = trades.map((t) => {
-    cum += t.pnl;
-    cumNet += (t.pnl_net ?? t.pnl);
+    cum += grossOf(t);
+    cumNet += netOf(t);
     return {
       time: t.exit_time,
       pnl: parseFloat(cum.toFixed(4)),
@@ -414,7 +431,7 @@ function computeStats(trades) {
   });
 
   const totalFees = trades.reduce((s, t) => s + (t.fee ?? 0), 0);
-  const totalPnlNet = totalPnl - totalFees;
+  const totalPnlNet = trades.reduce((s, t) => s + netOf(t), 0);
 
   return {
     totalTrades: trades.length,
