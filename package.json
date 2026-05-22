@@ -18,7 +18,8 @@
     "smoke:strategy": "node scripts/smokeTestStrategy.js",
     "smoke:bundle": "node scripts/smokeTestAnalysisBundle.js",
     "smoke:orderbook": "node scripts/smokeTestOrderbookCapture.js",
-    "smoke:pipeline": "node scripts/smokeTestPipeline.js"
+    "smoke:pipeline": "node scripts/smokeTestPipeline.js",
+    "backtest:verify": "npm run smoke:orderbook && npm run smoke:pipeline"
   },
   "dependencies": {
     "@polymarket/clob-client-v2": "^1.0.6",
