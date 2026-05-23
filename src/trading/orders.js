@@ -1,10 +1,10 @@
 import { Side, OrderType } from "@polymarket/clob-client-v2";
 import fs from "node:fs";
+import * as paths from "../paths.js";
 
 function logOrder(action, data) {
   try {
-    fs.mkdirSync("./logs", { recursive: true });
-    fs.appendFileSync("./logs/trade_orders.log",
+    fs.appendFileSync(paths.tradeOrdersLog,
       `${new Date().toISOString()} [${action}] ${JSON.stringify(data)}\n`);
   } catch { /* ignore */ }
 }

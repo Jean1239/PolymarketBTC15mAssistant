@@ -1,13 +1,13 @@
 import { ClobClient, SignatureTypeV2 } from "@polymarket/clob-client-v2";
 import { Wallet, ethers } from "ethers";
 import fs from "node:fs";
+import * as paths from "../paths.js";
 
 let _cached = null;
 
 function logTrading(msg) {
   try {
-    fs.mkdirSync("./logs", { recursive: true });
-    fs.appendFileSync("./logs/trade_orders.log",
+    fs.appendFileSync(paths.tradeOrdersLog,
       `${new Date().toISOString()} [CLIENT] ${msg}\n`);
   } catch { /* ignore */ }
 }

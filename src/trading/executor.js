@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import * as paths from "../paths.js";
 import { clamp } from "../utils.js";
 import { setStatusMessage } from "../display.js";
 import { buyMarketOrder, sellMarketOrder } from "./orders.js";
@@ -44,15 +45,13 @@ function parseFillFromOrder(order, side) {
 
 function logTrade(msg) {
   try {
-    fs.mkdirSync("./logs", { recursive: true });
-    fs.appendFileSync("./logs/trade_orders.log", `${new Date().toISOString()} ${msg}\n`);
+    fs.appendFileSync(paths.tradeOrdersLog, `${new Date().toISOString()} ${msg}\n`);
   } catch { /* ignore */ }
 }
 
 function logError(msg) {
   try {
-    fs.mkdirSync("./logs", { recursive: true });
-    fs.appendFileSync("./logs/trade_errors.log", `${new Date().toISOString()} ${msg}\n`);
+    fs.appendFileSync(paths.tradeErrorsLog, `${new Date().toISOString()} ${msg}\n`);
   } catch { /* ignore */ }
 }
 
