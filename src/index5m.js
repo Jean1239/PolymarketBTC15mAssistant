@@ -68,16 +68,26 @@ async function main() {
   const polymarketLiveStream = startPolymarketChainlinkPriceStream({});
   const chainlinkStream      = startChainlinkPriceStream({});
 
-  const liveTrading = CONFIG.trading.liveTradingEnabled;
-
+  const executionMode = CONFIG.executionMode;
   let trading = { client: null, tradingEnabled: false, tradeAmount: 0, initError: null };
-  try {
-    trading = await initTradingClient(CONFIG);
-  } catch (err) {
-    trading.initError = err?.message ?? String(err);
+
+  if (executionMode === "real") {
+    if (!process.env.POLYMARKET_PRIVATE_KEY) {
+      console.error("[startup] EXECUTION_MODE=real requires POLYMARKET_PRIVATE_KEY. Exiting.");
+      process.exit(1);
+    }
+    try {
+      trading = await initTradingClient(CONFIG);
+    } catch (err) {
+      console.error("[startup] EXECUTION_MODE=real init failed:", err?.message ?? String(err));
+      process.exit(1);
+    }
+    if (!trading.tradingEnabled) {
+      console.error("[startup] EXECUTION_MODE=real but trading client refused to enable:", trading.initError);
+      process.exit(1);
+    }
   }
-  // Override: only allow real orders when POLYMARKET_LIVE_TRADING=true
-  if (!liveTrading) trading.tradingEnabled = false;
+  // paper mode: trading stays { tradingEnabled: false } — sim is the decision engine only
 
   const resolveMarket = createMarketResolver(CONFIG.polymarket, CONFIG.pollIntervalMs);
   const priceLatch    = createPriceLatch();
@@ -93,10 +103,14 @@ async function main() {
   if (strategyVersion.created) {
     console.error(`[strategy] new version detected: ${strategyVersion.label} (${strategyVersion.hash})`);
   }
+  const tickCsvPath = executionMode === "real" ? paths.ticks5m : paths.dryrun5m;
   const dryRun = createDryRunSimulator5m(
-    paths.dryrun5m,
+    tickCsvPath,
     CONFIG.trading,
-    { configHash: strategyVersion.hash },
+    {
+      configHash: strategyVersion.hash,
+      disableTradesJournal: executionMode === "real",
+    },
   );
   process.on("exit", () => dryRun.flushNow());
 
@@ -306,11 +320,13 @@ async function main() {
       const settled = await tracker.update({ marketSlug, rec, marketUp, marketDown, currentPrice, priceToBeat });
       if (settled) {
         const { slug, side, won, pnl } = settled;
-        appendCsvRow(CSV_PATH, CSV_HEADER, [
-          new Date().toISOString(), "SETTLED", "0", "", "", "", "", "", "", "", "",
-          `${side}:${won ? "WIN" : "LOSS"}`, "", "", "", "", "",
-          `${won ? "WIN" : "LOSS"}:${side}`, won ? "WIN" : "LOSS", pnl.toFixed(4),
-        ]);
+        if (executionMode === "paper") {
+          appendCsvRow(CSV_PATH, CSV_HEADER, [
+            new Date().toISOString(), "SETTLED", "0", "", "", "", "", "", "", "", "",
+            `${side}:${won ? "WIN" : "LOSS"}`, "", "", "", "", "",
+            `${won ? "WIN" : "LOSS"}:${side}`, won ? "WIN" : "LOSS", pnl.toFixed(4),
+          ]);
+        }
 
         // If we hold a real position that settled with this market, close the
         // real-trade journal entry with the on-chain resolution payout.
@@ -422,7 +438,7 @@ async function main() {
         timeDecayMinLossPct: CONFIG.trading.timeDecayMinLossPct ?? 15,
         feeRate: CONFIG.trading.feeRate ?? 0,
       };
-      if (liveTrading) {
+      if (executionMode === "real") {
         displayPos = getPosition();
         displayCurrentMktPrice = displayPos.active ? (displayPos.side === "UP" ? marketUp : marketDown) : null;
         displayExitEval = evaluateExit({
@@ -450,12 +466,12 @@ async function main() {
         title: poly.ok ? (poly.market?.question ?? "-") : "-",
         modeTag,
         marketSlug,
-        liveTrading,
+        liveTrading: executionMode === "real",
         tradingEnabled: trading.tradingEnabled,
         initError: trading.initError,
         tradeAmount: CONFIG.trading.tradeAmount,
-        usdcBalance: liveTrading ? usdcBalance : null,
-        usdcBalanceError: liveTrading ? usdcBalanceError : null,
+        usdcBalance: executionMode === "real" ? usdcBalance : null,
+        usdcBalanceError: executionMode === "real" ? usdcBalanceError : null,
         confirmHint: null,
         shortcutsHint: null,
         binanceSpot: `${colorPriceLine({ label: "", price: spotPrice, prevPrice: prevSpotPrice, decimals: 0, prefix: "$" })}`,
@@ -489,28 +505,30 @@ async function main() {
       prevSpotPrice    = spotPrice    ?? prevSpotPrice;
       prevCurrentPrice = currentPrice ?? prevCurrentPrice;
 
-      appendCsvRow(CSV_PATH, CSV_HEADER, [
-        new Date().toISOString(),
-        timing.elapsedMinutes.toFixed(3),
-        timeLeftMin.toFixed(3),
-        ofiData.ofi30s?.ofi?.toFixed(3) ?? "",
-        ofiData.ofi1m?.ofi?.toFixed(3)  ?? "",
-        ofiData.ofi2m?.ofi?.toFixed(3)  ?? "",
-        momentum?.roc1?.toFixed(6) ?? "",
-        momentum?.roc3?.toFixed(6) ?? "",
-        emaCross?.crossover ?? "",
-        rsiNow?.toFixed(1)  ?? "",
-        signal,
-        timeAware.adjustedUp,
-        timeAware.adjustedDown,
-        marketUp,
-        marketDown,
-        edge.edgeUp,
-        edge.edgeDown,
-        rec.action === "ENTER" ? `${rec.side}:${rec.phase}:${rec.strength}` : "NO_TRADE",
-        "", // outcome
-        "", // pnl
-      ]);
+      if (executionMode === "paper") {
+        appendCsvRow(CSV_PATH, CSV_HEADER, [
+          new Date().toISOString(),
+          timing.elapsedMinutes.toFixed(3),
+          timeLeftMin.toFixed(3),
+          ofiData.ofi30s?.ofi?.toFixed(3) ?? "",
+          ofiData.ofi1m?.ofi?.toFixed(3)  ?? "",
+          ofiData.ofi2m?.ofi?.toFixed(3)  ?? "",
+          momentum?.roc1?.toFixed(6) ?? "",
+          momentum?.roc3?.toFixed(6) ?? "",
+          emaCross?.crossover ?? "",
+          rsiNow?.toFixed(1)  ?? "",
+          signal,
+          timeAware.adjustedUp,
+          timeAware.adjustedDown,
+          marketUp,
+          marketDown,
+          edge.edgeUp,
+          edge.edgeDown,
+          rec.action === "ENTER" ? `${rec.side}:${rec.phase}:${rec.strength}` : "NO_TRADE",
+          "", // outcome
+          "", // pnl
+        ]);
+      }
 
       // ── Dry-run paper-trading simulator (drives real trade dispatch) ────
       {
