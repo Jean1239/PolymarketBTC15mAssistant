@@ -1,22 +1,33 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { buildAnalysisBundle } from "../src/analysisBundle.js";
-
+// Point LOG_ROOT at a temp dir BEFORE importing paths.js / analysisBundle.js
+// so all paths.* constants resolve under our controlled directory.
 const tmp = mkdtempSync(path.join(tmpdir(), "bundle-smoke-"));
+process.env.LOG_ROOT = tmp;
+
+// Dynamic import ensures paths.js sees the updated env.
+const { buildAnalysisBundle } = await import("../src/analysisBundle.js");
+
 try {
+  // Replicate the subdir layout that paths.js creates.
+  const simDir  = path.join(tmp, "sim");
+  const realDir = path.join(tmp, "real");
+  const metaDir = path.join(tmp, "meta");
+  for (const d of [simDir, realDir, metaDir]) mkdirSync(d, { recursive: true });
+
   writeFileSync(
-    path.join(tmp, "dryrun_15m.csv"),
+    path.join(simDir, "dryrun_15m.csv"),
     "timestamp,btc_price\n2026-05-01T00:00:00Z,60000\n2026-05-01T00:00:01Z,60010\n",
   );
   writeFileSync(
-    path.join(tmp, "dryrun_15m_trades.csv"),
+    path.join(simDir, "dryrun_15m_trades.csv"),
     "entry_time,exit_time,pnl\n2026-05-01T00:00:00Z,2026-05-01T00:15:00Z,1.5\n",
   );
   writeFileSync(
-    path.join(tmp, "strategy_versions_15m.json"),
+    path.join(metaDir, "strategy_versions_15m.json"),
     JSON.stringify([{ hash: "abc", label: "v1" }]),
   );
   // real_15m_trades.csv intentionally absent — must land in `missing`.
