@@ -22,6 +22,7 @@
     "smoke:paths": "node scripts/smokeTestPaths.js",
     "smoke:realtradelog": "node scripts/smokeTestRealTradeLog.js",
     "smoke:dryrun-disable": "node scripts/smokeTestDryRunDisable.js",
+    "smoke:migration": "node scripts/smokeTestMigration.js",
     "backtest:verify": "npm run smoke:orderbook && npm run smoke:pipeline"
   },
   "dependencies": {
