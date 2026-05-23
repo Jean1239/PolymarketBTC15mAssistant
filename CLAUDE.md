@@ -144,7 +144,7 @@ Called once at startup via `applyGlobalProxyFromEnv()`. Reads `HTTPS_PROXY`/`HTT
 | `POLYMARKET_5M_SERIES_ID` | (falls back to 15m series) | Series ID for 5m markets |
 | `POLYMARKET_5M_SERIES_SLUG` | `btc-up-or-down-5m` | Series slug for 5m markets |
 | `HTTPS_PROXY` / `ALL_PROXY` | — | Proxy for all outbound connections |
-| `POLYMARKET_LIVE_TRADING` | `false` | **Sole gate** for real-money trading. `true` + a valid `POLYMARKET_PRIVATE_KEY` = real orders. Anything else = paper/simulated. Replaces the prior `DRY_RUN` flag (removed). |
+| `EXECUTION_MODE` | `paper` | **Sole gate** for real-money trading. `real` + a valid `POLYMARKET_PRIVATE_KEY` = live orders on the CLOB. `paper` (default) = simulator + CSV logging only. Replaces the prior `POLYMARKET_LIVE_TRADING` / `DRY_RUN` flags (both removed). |
 | `POLYMARKET_PRIVATE_KEY` | — | Polygon wallet private key (required for real trading, ignored otherwise) |
 | `POLYMARKET_FUNDER` | (derived from key) | Polymarket profile address (proxy/GnosisSafe wallet) |
 | `POLYMARKET_SIGNATURE_TYPE` | `0` | `0`=EOA, `1`=POLY_PROXY (auto-detects GnosisSafe or POLY_1271 from funder shape), `2`=GNOSIS_SAFE (Metamask flow), `3`=POLY_1271 (Polymarket smart-wallet flow — Phantom/email-non-magic) |
