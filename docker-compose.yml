@@ -10,6 +10,7 @@ services:
         required: false
     environment:
       BOT_MODE: 15m
+      EXECUTION_MODE: ${EXECUTION_MODE:-paper}
     mem_limit: 512m
     volumes:
       - polymarket_logs:/app/logs
@@ -30,9 +31,29 @@ services:
         required: false
     environment:
       BOT_MODE: 5m
+      EXECUTION_MODE: ${EXECUTION_MODE:-paper}
     mem_limit: 512m
     volumes:
       - polymarket_logs:/app/logs
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  capture:
+    build: .
+    container_name: polymarket-capture
+    restart: unless-stopped
+    profiles: ["capture"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      BOT_MODE: capture
+    mem_limit: 256m
+    volumes:
+      - polymarket_capture:/app/logs
     logging:
       driver: json-file
       options:
@@ -75,3 +96,4 @@ services:
 
 volumes:
   polymarket_logs:
+  polymarket_capture:
