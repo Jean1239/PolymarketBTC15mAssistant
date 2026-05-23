@@ -6,6 +6,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { api, type Trade } from "@/lib/api"
 import { useSelectedBot } from "@/lib/selected-bot"
+import { useSelectedStrategy } from "@/lib/selected-strategy"
+import { StrategySelect } from "@/components/strategy-select"
 
 export const Route = createFileRoute("/trades")({
   component: TradesPage,
@@ -120,13 +122,22 @@ function TradesTable({ trades }: { trades: Trade[] }) {
   )
 }
 
+function filterByStrategy(trades: Trade[], hash: string): Trade[] {
+  if (!hash || hash === "all") return trades
+  return trades.filter((t) => (t.config_hash ?? "unknown") === hash)
+}
+
 function TradesPage() {
   const q15 = useQuery({ queryKey: ["trades-15m"], queryFn: api.trades15m, refetchInterval: 30_000 })
   const q5 = useQuery({ queryKey: ["trades-5m"], queryFn: api.trades5m, refetchInterval: 30_000 })
   const { selected, setSelected, visibleBots } = useSelectedBot()
+  const { strategy15m, strategy5m } = useSelectedStrategy()
 
   const show15 = visibleBots.includes("15m")
   const show5 = visibleBots.includes("5m")
+
+  const trades15 = filterByStrategy(q15.data ?? [], strategy15m)
+  const trades5 = filterByStrategy(q5.data ?? [], strategy5m)
 
   return (
     <div className="p-4 md:p-6 space-y-4">
@@ -139,19 +150,22 @@ function TradesPage() {
         <p className="text-muted-foreground text-sm">Nenhum bot ativo no momento.</p>
       ) : (
         <Tabs value={selected} onValueChange={(v) => setSelected(v as "15m" | "5m")}>
-          <TabsList>
-            {show15 && <TabsTrigger value="15m">15-minute bot</TabsTrigger>}
-            {show5 && <TabsTrigger value="5m">5-minute bot</TabsTrigger>}
-          </TabsList>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <TabsList>
+              {show15 && <TabsTrigger value="15m">15-minute bot</TabsTrigger>}
+              {show5 && <TabsTrigger value="5m">5-minute bot</TabsTrigger>}
+            </TabsList>
+            <StrategySelect bot={selected} />
+          </div>
 
           {show15 && (
             <TabsContent value="15m" className="mt-4">
-              {q15.isLoading ? <p className="text-muted-foreground">Loading…</p> : <TradesTable trades={q15.data ?? []} />}
+              {q15.isLoading ? <p className="text-muted-foreground">Loading…</p> : <TradesTable trades={trades15} />}
             </TabsContent>
           )}
           {show5 && (
             <TabsContent value="5m" className="mt-4">
-              {q5.isLoading ? <p className="text-muted-foreground">Loading…</p> : <TradesTable trades={q5.data ?? []} />}
+              {q5.isLoading ? <p className="text-muted-foreground">Loading…</p> : <TradesTable trades={trades5} />}
             </TabsContent>
           )}
         </Tabs>
