@@ -24,7 +24,7 @@
     "smoke:realtradelog": "node scripts/smokeTestRealTradeLog.js",
     "smoke:dryrun-disable": "node scripts/smokeTestDryRunDisable.js",
     "smoke:migration": "node scripts/smokeTestMigration.js",
-    "backtest:verify": "npm run smoke:orderbook && npm run smoke:pipeline"
+    "backtest:verify": "npm run smoke:orderbook && npm run smoke:pipeline && npm run smoke:paths && npm run smoke:migration && npm run smoke:dryrun-disable && npm run smoke:realtradelog"
   },
   "dependencies": {
     "@polymarket/clob-client-v2": "^1.0.6",
