@@ -58,7 +58,10 @@ export const CONFIG = {
     // Defaults come from dry-run analysis: entries below 0.50 are net-losers on 15m
     // (settlement win-rate drops below 50% in [0.45-0.50) band). See STRATEGY_LOG.md.
     entryMinMarketPrice: Number(process.env.TRADE_ENTRY_MIN_PRICE || "0.50"),
-    entryMaxMarketPrice: Number(process.env.TRADE_ENTRY_MAX_PRICE || "0.58"),
+    // Lowered 0.58 → 0.56 (2026-05-23) after 983-trade dry-run showed the
+    // [0.56-0.58) band losing -$12.77 at 48.9% WR while [0.54-0.56) won
+    // +$13.25 at 57.3% WR. Upper band paid premium without edge.
+    entryMaxMarketPrice: Number(process.env.TRADE_ENTRY_MAX_PRICE || "0.56"),
     // Cooldown after a SIGNAL_FLIP before re-entering the same market
     flipCooldownS: Number(process.env.TRADE_FLIP_COOLDOWN_S || "60"),
     // Consecutive ticks model must confirm reversal before SIGNAL_FLIP fires
@@ -67,7 +70,12 @@ export const CONFIG = {
     //   - SIGNAL_FLIP: 15m data shows 25 flips with avg -$0.36 PnL; hold-to-settlement
     //     performs better. Enable via TRADE_DISABLE_SIGNAL_FLIP=false to re-activate.
     disableSignalFlip: (process.env.TRADE_DISABLE_SIGNAL_FLIP ?? "true").toLowerCase() === "true",
-    disableStopLoss: (process.env.TRADE_DISABLE_STOP_LOSS ?? "false").toLowerCase() === "true",
+    // STOP_LOSS disabled (2026-05-23): 983-trade dry-run showed 113 SL exits
+    // costing -$74.61 (avg ROI -58%, avg duration 283s). 180-300s duration
+    // bucket had 8.9% WR — SL fires before market mean-reverts. Hold-to-
+    // settlement dominant on 15m (same pattern as 5m). Override with
+    // TRADE_DISABLE_STOP_LOSS=false to re-enable.
+    disableStopLoss: (process.env.TRADE_DISABLE_STOP_LOSS ?? "true").toLowerCase() === "true",
     // Disable TIME_DECAY on 15m: 143 exits over 5 days totalled -$139.86 while non-TD
     // trades (SETTLED_WIN + SL) netted +$100.22 at 73.6% WR. Raising entryMinMarketPrice
     // to 0.50 made every single trade qualify for TD — same pattern that caused -$159 on 5m
@@ -78,9 +86,12 @@ export const CONFIG = {
     timeDecayMinLeftMin: Number(process.env.TRADE_TIME_DECAY_MIN_LEFT_MIN || "1.5"),
     timeDecayMinLossPct: Number(process.env.TRADE_TIME_DECAY_MIN_LOSS_PCT || "5"),
     // BTC vs price-to-beat entry filter: skip entry when |btcPrice - priceToBeat| < threshold.
-    // Near-zero divergence = market undecided — 41.5% win rate in [-5,+5) zone on 15m.
-    // Set to 0 to disable. Override with TRADE_BTC_VS_PTB_MIN_USD.
-    btcVsPtbMinAbsUsd: Number(process.env.TRADE_BTC_VS_PTB_MIN_USD || "5"),
+    // Near-zero divergence = market undecided.
+    // Raised 5 → 10 (2026-05-23) after 983-trade run showed [5-10) bucket
+    // losing -$33.46 across 505 trades (51% of total volume) at 46.5% WR,
+    // while [10-40) bucket won +$24.86 (n=422, WR 56%). Threshold of 10
+    // skips the toxic indecision zone. Set to 0 to disable.
+    btcVsPtbMinAbsUsd: Number(process.env.TRADE_BTC_VS_PTB_MIN_USD || "10"),
     // High-conviction position sizing. When entry price ∈ [entryMin, entryMax]
     // AND chosen-side model prob ≥ minProb, trade amount is multiplied.
     // Multiplier=1 disables the feature.
