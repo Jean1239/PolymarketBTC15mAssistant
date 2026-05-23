@@ -31,7 +31,6 @@ import { executeRealBuy, executeRealSell } from "./trading/executor.js";
 import { createPriceLatch } from "./trading/priceLatch.js";
 import { createTradeTracker } from "./trading/tracker.js";
 import { createDryRunSimulator5m } from "./dryRun.js";
-import { createOrderbookCapture } from "./backtest/orderbookCapture.js";
 import { runPipeline5m } from "./backtest/pipeline5m.js";
 import { ensureStrategyVersion } from "./strategy/registry.js";
 import { createRedemptionWorker } from "./trading/redeem.js";
@@ -114,8 +113,6 @@ async function main() {
   );
   process.on("exit", () => dryRun.flushNow());
 
-  const orderbookCapture = createOrderbookCapture({ dir: "./logs", depthLevels: 10, retentionDays: 90 });
-
   const realTradeLog = createRealTradeLogger(paths.real5mTrades, { configHash: strategyVersion.hash });
   const redemptionWorker = createRedemptionWorker();
 
@@ -164,17 +161,6 @@ async function main() {
       const settlementMs      = poly.ok && poly.market?.endDate ? new Date(poly.market.endDate).getTime() : null;
       const settlementLeftMin = settlementMs ? (settlementMs - Date.now()) / 60_000 : null;
       const timeLeftMin       = settlementLeftMin ?? timing.remainingMinutes;
-
-      // Backtest Fase 0: captura de profundidade de orderbook (fire-and-forget)
-      if (poly.ok && poly.rawBook?.up && poly.rawBook?.down) {
-        try {
-          orderbookCapture.record({
-            slug: String(poly.market?.slug ?? ""),
-            timeLeftMin,
-            rawBook: poly.rawBook,
-          });
-        } catch { /* nunca bloqueia o poll */ }
-      }
 
       // Resolvido uma vez por tick: entradas do pipeline puro (gate de alinhamento BTC).
       const btcPriceForTick = chainlink?.price ?? null;
