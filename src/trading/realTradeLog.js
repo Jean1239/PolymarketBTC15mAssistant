@@ -33,6 +33,7 @@ const TRADE_JOURNAL_HEADER = [
   "entry_fee_model", "exit_fee_model", "gross_pnl",
   "entry_tx_hash", "exit_tx_hash",
   "entry_usdc_real", "exit_usdc_real",
+  "config_hash",
 ];
 
 function csvEscape(v) {
@@ -61,7 +62,7 @@ function ensureHeader(filePath) {
  *
  * @param {string} csvPath - e.g. paths.real5mTrades; defaults to realTradeLog parameter if omitted
  */
-export function createRealTradeLogger(csvPath = paths.real5mTrades) {
+export function createRealTradeLogger(csvPath = paths.real5mTrades, { configHash = "unknown" } = {}) {
   // Pending entry, awaiting a matching exit. One position at a time.
   let pending = null;
 
@@ -130,6 +131,7 @@ export function createRealTradeLogger(csvPath = paths.real5mTrades) {
       txHash ?? "",
       "", // entry_usdc_real — populated by scripts/backfillFees.js
       "", // exit_usdc_real
+      configHash,
     ].map(csvEscape).join(",");
 
     fs.appendFileSync(csvPath, row + "\n", "utf8");

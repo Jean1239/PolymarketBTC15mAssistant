@@ -20,6 +20,7 @@
     "smoke:orderbook": "node scripts/smokeTestOrderbookCapture.js",
     "smoke:pipeline": "node scripts/smokeTestPipeline.js",
     "smoke:paths": "node scripts/smokeTestPaths.js",
+    "smoke:realtradelog": "node scripts/smokeTestRealTradeLog.js",
     "backtest:verify": "npm run smoke:orderbook && npm run smoke:pipeline"
   },
   "dependencies": {
