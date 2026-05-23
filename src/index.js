@@ -94,7 +94,7 @@ async function main() {
   );
   process.on("exit", () => dryRun.flushNow());
 
-  const realTradeLog = createRealTradeLogger(paths.real15mTrades);
+  const realTradeLog = createRealTradeLogger(paths.real15mTrades, { configHash: strategyVersion.hash });
   const redemptionWorker = createRedemptionWorker();
 
   // Late-start guard: skip entering positions on markets the bot didn't see from open

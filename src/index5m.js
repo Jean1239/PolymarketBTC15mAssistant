@@ -102,7 +102,7 @@ async function main() {
 
   const orderbookCapture = createOrderbookCapture({ dir: "./logs", depthLevels: 10, retentionDays: 90 });
 
-  const realTradeLog = createRealTradeLogger(paths.real5mTrades);
+  const realTradeLog = createRealTradeLogger(paths.real5mTrades, { configHash: strategyVersion.hash });
   const redemptionWorker = createRedemptionWorker();
 
   // Late-start guard: skip entering positions on markets the bot didn't see from open
