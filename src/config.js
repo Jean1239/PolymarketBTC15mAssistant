@@ -107,10 +107,6 @@ export const CONFIG = {
     blockedHoursUtc: process.env.TRADE_BLOCKED_HOURS_UTC
       ? process.env.TRADE_BLOCKED_HOURS_UTC.split(",").map(Number)
       : [],
-    // Sole gate for real-money trading. Default false = paper/simulated mode.
-    // Real orders fire iff POLYMARKET_LIVE_TRADING=true AND POLYMARKET_PRIVATE_KEY
-    // is set. Replaces the previous (DRY_RUN, POLYMARKET_LIVE_TRADING) pair.
-    liveTradingEnabled: (process.env.POLYMARKET_LIVE_TRADING || "").toLowerCase() === "true",
     // Max fractional drift (0–1) between the sim's decision price and the live
     // bestAsk/bestBid at order-send time. If the market moved more than this between
     // the sim deciding to trade and the order actually firing, the real order is
