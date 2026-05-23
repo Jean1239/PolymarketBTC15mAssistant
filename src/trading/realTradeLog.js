@@ -8,6 +8,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import * as paths from "../paths.js";
 import { ensureDir } from "../utils.js";
 import { takerFee, DEFAULT_FEE_RATE } from "../fees.js";
 
@@ -58,9 +59,9 @@ function ensureHeader(filePath) {
 /**
  * Factory: returns { recordEntry(ctx), recordExit(ctx) }.
  *
- * @param {string} csvPath - e.g. "./logs/real_5m_trades.csv"
+ * @param {string} csvPath - e.g. paths.real5mTrades; defaults to realTradeLog parameter if omitted
  */
-export function createRealTradeLogger(csvPath) {
+export function createRealTradeLogger(csvPath = paths.real5mTrades) {
   // Pending entry, awaiting a matching exit. One position at a time.
   let pending = null;
 

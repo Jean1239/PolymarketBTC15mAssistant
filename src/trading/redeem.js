@@ -18,6 +18,7 @@
 
 import { ethers } from "ethers";
 import fs from "node:fs";
+import * as paths from "../paths.js";
 import { CONFIG } from "../config.js";
 
 const POLYGON_NETWORK = ethers.Network.from(137);
@@ -38,7 +39,7 @@ const RETRY_DELAYS_MS = [30_000, 60_000, 120_000, 300_000, 900_000, 1800_000];
 
 function logRedeem(msg) {
   try {
-    fs.appendFileSync("./logs/trade_orders.log",
+    fs.appendFileSync(paths.tradeOrdersLog,
       `${new Date().toISOString()} [REDEEM] ${msg}\n`);
   } catch { /* ignore */ }
 }
