@@ -1,6 +1,5 @@
 import http from "http";
 import { createReadStream, readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync, existsSync, statSync, openSync, fstatSync, readSync, closeSync } from "fs";
-import { readdir } from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import { toNodeHandler, fromNodeHeaders } from "better-auth/node";
@@ -9,22 +8,34 @@ import { runMigrations } from "./auth/migrate.js";
 import { seedAdmin } from "./auth/seedAdmin.js";
 import { buildAnalysisBundle } from "./analysisBundle.js";
 import { takerFee, DEFAULT_FEE_RATE } from "./fees.js";
+import * as paths from "./paths.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
-const LOGS_DIR = path.join(ROOT, "logs");
+// LOGS_DIR kept as an alias so internal helpers that predate paths.js still compile.
+const LOGS_DIR = paths.LOG_ROOT;
+// Absolute version used for path-traversal guards — LOGS_DIR may be relative in dev.
+const LOG_ROOT_ABS = path.resolve(paths.LOG_ROOT);
 const DIST_DIR = path.join(ROOT, "dashboard", "dist");
 const PORT = process.env.LOG_SERVER_PORT ?? 3456;
 
 // Selects which trade journal the /api/trades/* and /api/stats endpoints read.
 // "sim"  (default) → dryrun_{15m,5m}_trades.csv  (paper-trading simulator)
 // "real"           → real_{15m,5m}_trades.csv    (executed live orders)
-// The per-tick /api/live endpoint always reads the dryrun CSVs because they
-// are the only tick-by-tick source the bots emit.
+// /api/live always returns the LAST TICK CSV row (sim/dryrun_*.csv in paper mode,
+// real/ticks_*.csv in real mode — selected by DASHBOARD_TRADE_SOURCE).
 const TRADE_SOURCE = (process.env.DASHBOARD_TRADE_SOURCE ?? "sim").toLowerCase() === "real" ? "real" : "sim";
+// Absolute paths to the trade-journal CSVs for the active source role.
 const TRADES_FILE = {
-  "15m": TRADE_SOURCE === "real" ? "real_15m_trades.csv" : "dryrun_15m_trades.csv",
-  "5m":  TRADE_SOURCE === "real" ? "real_5m_trades.csv"  : "dryrun_5m_trades.csv",
+  "15m": TRADE_SOURCE === "real" ? paths.real15mTrades : paths.dryrun15mTrades,
+  "5m":  TRADE_SOURCE === "real" ? paths.real5mTrades  : paths.dryrun5mTrades,
+};
+// Absolute paths to the per-tick CSVs for the active source role.
+// "sim"  → dryrun_15m.csv / dryrun_5m.csv  (paper-trading simulator)
+// "real" → ticks_15m.csv / ticks_5m.csv    (real-trading tick log)
+const TICK_FILE = {
+  "15m": TRADE_SOURCE === "real" ? paths.ticks15m : paths.dryrun15m,
+  "5m":  TRADE_SOURCE === "real" ? paths.ticks5m  : paths.dryrun5m,
 };
 
 // Polymarket taker fee model. Single source of truth lives in src/fees.js
@@ -123,14 +134,27 @@ function buildZip(entries) {
 const ZIP_MAX_FILE_BYTES = 50 * 1024 * 1024; // skip files > 50 MB in ZIP
 const LOG_EXTS = new Set([".csv", ".json", ".log"]);
 
+// Lists log files recursively across the role-specific subdirectories.
+// Each file's `name` is its path relative to LOG_ROOT (e.g. "sim/dryrun_5m.csv").
+// Excludes ARCHIVE_DIR (old backups) and CAPTURE_DIR (.jsonl capture files are
+// not in LOG_EXTS and would always be filtered out anyway).
+const LOG_SUBDIRS = [paths.SIM_DIR, paths.REAL_DIR, paths.META_DIR];
+
 function listLogFiles() {
-  return readdirSync(LOGS_DIR, { withFileTypes: true })
-    .filter((d) => d.isFile() && LOG_EXTS.has(path.extname(d.name)))
-    .map((d) => {
-      const st = statSync(path.join(LOGS_DIR, d.name));
-      return { name: d.name, size: st.size, modified: st.mtime.toISOString() };
-    })
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const result = [];
+  for (const dir of LOG_SUBDIRS) {
+    if (!existsSync(dir)) continue;
+    for (const d of readdirSync(dir, { withFileTypes: true })) {
+      if (!d.isFile()) continue;
+      if (!LOG_EXTS.has(path.extname(d.name))) continue;
+      const absPath = path.join(dir, d.name);
+      const st = statSync(absPath);
+      const relName = path.relative(LOGS_DIR, absPath);
+      result.push({ name: relName, size: st.size, modified: st.mtime.toISOString() });
+    }
+  }
+  result.sort((a, b) => a.name.localeCompare(b.name));
+  return result;
 }
 
 // Reads the last `lines` lines of a file by tailing from EOF in 16 KB chunks.
@@ -170,13 +194,14 @@ function tailFile(filepath, lines) {
 }
 
 // Returns whether the 15m / 5m bot is currently writing ticks.
-// A bot is "active" when its tick CSV (dryrun_{15m,5m}.csv) was modified
-// within the last `staleSeconds` window. 60s is generous (poll is 1s) so
-// brief stalls don't blink the UI off.
+// Uses the role-appropriate tick CSV (sim → dryrun, real → ticks).
+// A bot is "active" when its tick CSV was modified within the last
+// `staleSeconds` window. 60s is generous (poll is 1s) so brief stalls
+// don't blink the UI off.
 function getBotStatus(staleSeconds = 60) {
   const result = {};
   for (const tf of ["15m", "5m"]) {
-    const fp = path.join(LOGS_DIR, `dryrun_${tf}.csv`);
+    const fp = TICK_FILE[tf];
     if (!existsSync(fp)) {
       result[tf] = { active: false, lastTickAgoS: null, exists: false };
       continue;
@@ -207,8 +232,8 @@ function getTradeEvents(limit) {
   const want = Math.max(1, Math.min(limit, 200));
   // Pull more than `want` from each file so the merge has enough to interleave.
   const perFile = want * 2;
-  const orders = tailFile(path.join(LOGS_DIR, "trade_orders.log"), perFile);
-  const errors = tailFile(path.join(LOGS_DIR, "trade_errors.log"), perFile);
+  const orders = tailFile(paths.tradeOrdersLog, perFile);
+  const errors = tailFile(paths.tradeErrorsLog, perFile);
   const events = [
     ...(orders ? parseTradeEventLines(orders.lines, "order") : []),
     ...(errors ? parseTradeEventLines(errors.lines, "error") : []),
@@ -501,7 +526,7 @@ function serveStatic(urlPath, res) {
 // ── Strategy registry helpers ────────────────────────────────────────────────
 
 function loadStrategyRegistry(bot) {
-  const p = path.join(LOGS_DIR, `strategy_versions_${bot}.json`);
+  const p = bot === "5m" ? paths.strategyVersions5m : paths.strategyVersions15m;
   if (!existsSync(p)) return [];
   try {
     const arr = JSON.parse(readFileSync(p, "utf8"));
@@ -610,12 +635,12 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (p === "/api/trades/15m") {
-      const rows = coerceTrades(parseCsv(path.join(LOGS_DIR, TRADES_FILE["15m"])));
+      const rows = coerceTrades(parseCsv(TRADES_FILE["15m"]));
       return json(res, rows);
     }
 
     if (p === "/api/trades/5m") {
-      const rows = coerceTrades(parseCsv(path.join(LOGS_DIR, TRADES_FILE["5m"])));
+      const rows = coerceTrades(parseCsv(TRADES_FILE["5m"]));
       return json(res, rows);
     }
 
@@ -640,14 +665,14 @@ const server = http.createServer(async (req, res) => {
           return Number.isFinite(ms) && ms >= sinceMs;
         });
       };
-      const t15 = filterSince(coerceTrades(parseCsv(path.join(LOGS_DIR, TRADES_FILE["15m"]))));
-      const t5 = filterSince(coerceTrades(parseCsv(path.join(LOGS_DIR, TRADES_FILE["5m"]))));
+      const t15 = filterSince(coerceTrades(parseCsv(TRADES_FILE["15m"])));
+      const t5 = filterSince(coerceTrades(parseCsv(TRADES_FILE["5m"])));
       return json(res, { "15m": computeStats(t15), "5m": computeStats(t5), source: TRADE_SOURCE });
     }
 
     if (p === "/api/live") {
-      const row15 = readLastCsvRow(path.join(LOGS_DIR, "dryrun_15m.csv"));
-      const row5  = readLastCsvRow(path.join(LOGS_DIR, "dryrun_5m.csv"));
+      const row15 = readLastCsvRow(TICK_FILE["15m"]);
+      const row5  = readLastCsvRow(TICK_FILE["5m"]);
       return json(res, {
         "15m": row15 ? coerceSignals15m([row15])[0] : null,
         "5m":  row5  ? coerceSignals5m([row5])[0]   : null,
@@ -660,12 +685,18 @@ const server = http.createServer(async (req, res) => {
 
     if (p === "/api/files/tail") {
       const name = url.searchParams.get("name") ?? "";
-      if (!name || name.includes("/") || name.includes("\\") || name.startsWith(".")) {
+      if (!name || name.includes("\\") || name.startsWith(".") || name.startsWith("/")) {
         res.writeHead(400); res.end("Invalid filename"); return;
+      }
+      const fp = path.resolve(LOG_ROOT_ABS, name);
+      if (!fp.startsWith(LOG_ROOT_ABS + path.sep) && fp !== LOG_ROOT_ABS) {
+        res.writeHead(400); res.end("Invalid filename"); return;
+      }
+      if (!LOG_EXTS.has(path.extname(fp))) {
+        res.writeHead(400); res.end("Invalid file type"); return;
       }
       const linesParam = parseInt(url.searchParams.get("lines") ?? "50", 10);
       const lines = Number.isFinite(linesParam) && linesParam > 0 ? linesParam : 50;
-      const fp = path.join(LOGS_DIR, name);
       const result = tailFile(fp, lines);
       if (!result) { res.writeHead(404); res.end("Not found"); return; }
       return json(res, { name, lines: result.lines, totalSize: result.totalSize, truncated: result.truncated });
@@ -683,16 +714,23 @@ const server = http.createServer(async (req, res) => {
 
     if (p === "/api/files/download") {
       const name = url.searchParams.get("name") ?? "";
-      if (!name || name.includes("/") || name.includes("\\") || name.startsWith(".")) {
+      if (!name || name.includes("\\") || name.startsWith(".") || name.startsWith("/")) {
         res.writeHead(400); res.end("Invalid filename"); return;
       }
-      const fp = path.join(LOGS_DIR, name);
+      const fp = path.resolve(LOG_ROOT_ABS, name);
+      if (!fp.startsWith(LOG_ROOT_ABS + path.sep) && fp !== LOG_ROOT_ABS) {
+        res.writeHead(400); res.end("Invalid filename"); return;
+      }
+      if (!LOG_EXTS.has(path.extname(fp))) {
+        res.writeHead(400); res.end("Invalid file type"); return;
+      }
       if (!existsSync(fp) || statSync(fp).isDirectory()) { res.writeHead(404); res.end("Not found"); return; }
       const st = statSync(fp);
       const extMime = { ".csv": "text/csv", ".json": "application/json", ".log": "text/plain" };
+      const baseName = path.basename(fp);
       res.writeHead(200, {
-        "Content-Type": extMime[path.extname(name)] ?? "application/octet-stream",
-        "Content-Disposition": `attachment; filename="${name}"`,
+        "Content-Type": extMime[path.extname(fp)] ?? "application/octet-stream",
+        "Content-Disposition": `attachment; filename="${baseName}"`,
         "Content-Length": st.size,
         "Cache-Control": "no-store",
         "Access-Control-Allow-Origin": "*",
@@ -714,12 +752,14 @@ const server = http.createServer(async (req, res) => {
         if (!Array.isArray(names) || names.length === 0) {
           res.writeHead(400); res.end("names must be a non-empty array"); return;
         }
-        const invalid = names.find((n) => typeof n !== "string" || n.includes("/") || n.includes("\\") || n.startsWith("."));
+        const invalid = names.find((n) => typeof n !== "string" || n.includes("\\") || n.startsWith(".") || n.startsWith("/"));
         if (invalid) { res.writeHead(400); res.end("Invalid filename"); return; }
 
         const entries = [];
         for (const name of names) {
-          const fp = path.join(LOGS_DIR, name);
+          const fp = path.resolve(LOG_ROOT_ABS, name);
+          if (!fp.startsWith(LOG_ROOT_ABS + path.sep) && fp !== LOG_ROOT_ABS) continue; // traversal guard
+          if (!LOG_EXTS.has(path.extname(fp))) continue;
           if (!existsSync(fp)) continue;
           const st = statSync(fp);
           if (st.isDirectory()) continue;
@@ -744,7 +784,8 @@ const server = http.createServer(async (req, res) => {
       const files = listLogFiles().filter((f) => f.size <= ZIP_MAX_FILE_BYTES);
       const entries = [];
       for (const { name, modified } of files) {
-        const fp = path.join(LOGS_DIR, name);
+        // `name` is already relative to LOG_ROOT (e.g. "sim/dryrun_5m.csv")
+        const fp = path.resolve(LOGS_DIR, name);
         if (!existsSync(fp)) continue;
         entries.push({ name, data: readFileSync(fp), mtime: new Date(modified) });
       }
@@ -783,24 +824,27 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === "/api/logs/clear" && req.method === "POST") {
+      // Absolute paths — covers both sim and real files plus new tick CSVs.
       const CSV_FILES = [
-        "dryrun_15m.csv",
-        "dryrun_5m.csv",
-        "dryrun_15m_trades.csv",
-        "dryrun_5m_trades.csv",
-        "real_15m_trades.csv",
-        "real_5m_trades.csv",
-        "signals.csv",
-        "signals_5m.csv",
+        paths.dryrun15m,
+        paths.dryrun5m,
+        paths.dryrun15mTrades,
+        paths.dryrun5mTrades,
+        paths.real15mTrades,
+        paths.real5mTrades,
+        paths.ticks15m,
+        paths.ticks5m,
+        paths.signals15m,
+        paths.signals5m,
       ];
       const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-      const archiveDir = path.join(LOGS_DIR, "archive", ts);
+      const archiveDir = path.join(paths.ARCHIVE_DIR, ts);
       mkdirSync(archiveDir, { recursive: true });
       const cleared = [];
-      for (const name of CSV_FILES) {
-        const fp = path.join(LOGS_DIR, name);
+      for (const fp of CSV_FILES) {
         if (!existsSync(fp)) continue;
-        copyFileSync(fp, path.join(archiveDir, name));
+        const baseName = path.basename(fp);
+        copyFileSync(fp, path.join(archiveDir, baseName));
         const hBuf = Buffer.alloc(4096);
         const hFd = openSync(fp, "r");
         const hRead = readSync(hFd, hBuf, 0, hBuf.length, 0);
@@ -808,9 +852,9 @@ const server = http.createServer(async (req, res) => {
         const hEnd = hBuf.indexOf(10, 0); // first newline
         const header = hBuf.subarray(0, hEnd >= 0 ? hEnd : hRead).toString("utf8").replace(/\r$/, "");
         writeFileSync(fp, header + "\n", "utf8");
-        cleared.push(name);
+        cleared.push(path.relative(LOGS_DIR, fp)); // return relative name for UI
       }
-      return json(res, { ok: true, cleared, archive: `archive/${ts}` });
+      return json(res, { ok: true, cleared, archive: path.relative(LOGS_DIR, archiveDir) });
     }
 
     if (p.startsWith("/api/")) {
