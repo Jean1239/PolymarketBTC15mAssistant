@@ -1,3 +1,4 @@
+import * as paths from "./paths.js";
 import { CONFIG } from "./config.js";
 import { fetchKlines, fetchLastPrice } from "./data/binance.js";
 import { fetchChainlinkBtcUsd } from "./data/chainlink.js";
@@ -48,7 +49,7 @@ function countVwapCrosses(closes, vwapSeries, lookback) {
   return crosses;
 }
 
-const CSV_PATH = "./logs/signals.csv";
+const CSV_PATH = paths.signals15m;
 const CSV_HEADER = [
   "timestamp", "entry_minute", "time_left_min",
   "regime", "signal",
@@ -80,20 +81,20 @@ async function main() {
 
   const dumpedMarkets = new Set();
   const strategyVersion = ensureStrategyVersion(CONFIG.trading, {
-    registryPath: "./logs/strategy_versions_15m.json",
+    registryPath: paths.strategyVersions15m,
     source: "auto",
   });
   if (strategyVersion.created) {
     console.error(`[strategy] new version detected: ${strategyVersion.label} (${strategyVersion.hash})`);
   }
   const dryRun = createDryRunSimulator15m(
-    "./logs/dryrun_15m.csv",
+    paths.dryrun15m,
     CONFIG.trading,
     { configHash: strategyVersion.hash },
   );
   process.on("exit", () => dryRun.flushNow());
 
-  const realTradeLog = createRealTradeLogger("./logs/real_15m_trades.csv");
+  const realTradeLog = createRealTradeLogger(paths.real15mTrades);
   const redemptionWorker = createRedemptionWorker();
 
   // Late-start guard: skip entering positions on markets the bot didn't see from open
@@ -264,8 +265,8 @@ async function main() {
         if (slug && !dumpedMarkets.has(slug)) {
           dumpedMarkets.add(slug);
           try {
-            fs.mkdirSync("./logs", { recursive: true });
-            fs.writeFileSync(path.join("./logs", `polymarket_market_${slug}.json`), JSON.stringify(poly.market, null, 2), "utf8");
+            fs.mkdirSync(paths.LOG_ROOT, { recursive: true });
+            fs.writeFileSync(path.join(paths.LOG_ROOT, `polymarket_market_${slug}.json`), JSON.stringify(poly.market, null, 2), "utf8");
           } catch { /* ignore */ }
         }
       }
