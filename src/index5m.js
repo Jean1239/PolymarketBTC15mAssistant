@@ -1,3 +1,4 @@
+import * as paths from "./paths.js";
 import { CONFIG } from "./config5m.js";
 import { fetchKlines, fetchLastPrice } from "./data/binance.js";
 import { fetchChainlinkBtcUsd } from "./data/chainlink.js";
@@ -53,7 +54,7 @@ function ofiNarrative(ofi) {
   return "NEUTRAL";
 }
 
-const CSV_PATH = "./logs/signals_5m.csv";
+const CSV_PATH = paths.signals5m;
 const CSV_HEADER = [
   "timestamp", "entry_minute", "time_left_min",
   "ofi_30s", "ofi_1m", "ofi_2m",
@@ -86,14 +87,14 @@ async function main() {
   notifyStart("5m");
 
   const strategyVersion = ensureStrategyVersion(CONFIG.trading, {
-    registryPath: "./logs/strategy_versions_5m.json",
+    registryPath: paths.strategyVersions5m,
     source: "auto",
   });
   if (strategyVersion.created) {
     console.error(`[strategy] new version detected: ${strategyVersion.label} (${strategyVersion.hash})`);
   }
   const dryRun = createDryRunSimulator5m(
-    "./logs/dryrun_5m.csv",
+    paths.dryrun5m,
     CONFIG.trading,
     { configHash: strategyVersion.hash },
   );
@@ -101,7 +102,7 @@ async function main() {
 
   const orderbookCapture = createOrderbookCapture({ dir: "./logs", depthLevels: 10, retentionDays: 90 });
 
-  const realTradeLog = createRealTradeLogger("./logs/real_5m_trades.csv");
+  const realTradeLog = createRealTradeLogger(paths.real5mTrades);
   const redemptionWorker = createRedemptionWorker();
 
   // Late-start guard: skip entering positions on markets the bot didn't see from open
@@ -230,7 +231,7 @@ async function main() {
               edgeDown: edge.edgeDown,
             },
           });
-          fs.appendFileSync("./logs/pipeline_trace.jsonl", _traceLine + "\n");
+          fs.appendFileSync(paths.pipelineTrace, _traceLine + "\n");
         } catch { /* trace é best-effort */ }
       }
 
@@ -332,8 +333,8 @@ async function main() {
         if (slug && !dumpedMarkets.has(slug)) {
           dumpedMarkets.add(slug);
           try {
-            fs.mkdirSync("./logs", { recursive: true });
-            fs.writeFileSync(path.join("./logs", `polymarket_market_${slug}.json`), JSON.stringify(poly.market, null, 2), "utf8");
+            fs.mkdirSync(paths.LOG_ROOT, { recursive: true });
+            fs.writeFileSync(path.join(paths.LOG_ROOT, `polymarket_market_${slug}.json`), JSON.stringify(poly.market, null, 2), "utf8");
           } catch { /* ignore */ }
         }
       }
