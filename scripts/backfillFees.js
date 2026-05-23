@@ -39,6 +39,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import * as paths from "../src/paths.js";
 import { takerFee, DEFAULT_FEE_RATE } from "../src/fees.js";
 
 const API_BASE = "https://data-api.polymarket.com";
@@ -56,7 +57,7 @@ const NEW_COLUMNS = [
 function parseArgs(argv) {
   const out = {
     user: process.env.POLYMARKET_FUNDER || null,
-    csv: "./logs/real_5m_trades.csv",
+    csv: paths.real5mTrades,
     dry: false,
     feeRate: Number(process.env.TRADE_FEE_RATE ?? DEFAULT_FEE_RATE),
   };
@@ -227,7 +228,7 @@ function findActivityForExit({ row, idx }) {
 
 function backupCsv(csvPath) {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const archiveDir = path.join("./logs/archive", `backfill_fees_${stamp}`);
+  const archiveDir = path.join(paths.ARCHIVE_DIR, `backfill_fees_${stamp}`);
   fs.mkdirSync(archiveDir, { recursive: true });
   const dest = path.join(archiveDir, path.basename(csvPath));
   fs.copyFileSync(csvPath, dest);

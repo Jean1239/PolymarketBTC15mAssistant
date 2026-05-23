@@ -21,12 +21,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import * as paths from "../src/paths.js";
 
 const API_BASE = "https://data-api.polymarket.com";
 const PAGE_SIZE = 500;
 
 function parseArgs(argv) {
-  const out = { user: process.env.POLYMARKET_FUNDER || null, csv: "./logs/real_5m_trades.csv" };
+  const out = { user: process.env.POLYMARKET_FUNDER || null, csv: paths.real5mTrades };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--user") out.user = argv[++i];
