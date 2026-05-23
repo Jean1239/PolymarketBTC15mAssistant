@@ -144,7 +144,7 @@ Prod volumes (Coolify Shared Storage):
 Staging volumes: the named volumes `polymarket_logs` and
 `polymarket_capture` declared in `docker-compose.yml`.
 
-Layout inside `/app/logs/`:
+Layout inside `/app/logs/` (subdirs created by `scripts/migrateLogLayout.js`):
 
 ```
 sim/
@@ -154,19 +154,22 @@ sim/
 real/
   ticks_15m.csv, ticks_5m.csv
   real_15m_trades.csv, real_5m_trades.csv
+  trade_orders.log, trade_errors.log
+meta/
+  strategy_versions_15m.json, strategy_versions_5m.json
+  polymarket_market_<slug>.json
+capture/                          # orderbook dumps (capture App's own volume in prod)
 archive/                          # role-aware gzip rotation, 14-day retention
-strategy_versions_{15m,5m}.json
-polymarket_market_<slug>.json
-auth.db, auth.db-wal, auth.db-shm # better-sqlite3 WAL
-trade_orders.log, trade_errors.log
+auth.db, auth.db-wal, auth.db-shm # better-sqlite3 WAL (dashboard only)
 ```
 
 `scripts/migrateLogLayout.js` runs in the entrypoint on every container
 boot — idempotent, moves any legacy flat CSVs into `sim/` and `real/`.
 
-Backup targets (worth periodic `cp`): `auth.db*`, `*_trades.csv` (both
-`sim/` and `real/`), `strategy_versions_*.json`. Tick CSVs are disposable
-— rotated on each restart.
+Backup targets (worth periodic `cp`): `auth.db*`, `sim/*_trades.csv`,
+`real/*_trades.csv`, `meta/strategy_versions_*.json`. Tick CSVs
+(`signals*`, `dryrun*`, `ticks*`) are disposable — rotated on each
+restart.
 
 ## CI/CD & branch flow
 
