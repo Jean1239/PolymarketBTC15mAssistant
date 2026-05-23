@@ -1,4 +1,12 @@
+const _executionMode = (process.env.EXECUTION_MODE ?? "paper").toLowerCase();
+if (_executionMode !== "paper" && _executionMode !== "real") {
+  console.error(`[startup] EXECUTION_MODE inválido: '${_executionMode}'. Use 'paper' ou 'real'.`);
+  process.exit(1);
+}
+
 export const CONFIG = {
+  executionMode: _executionMode,
+
   symbol: "BTCUSDT",
   binanceBaseUrl: "https://api.binance.com",
   gammaBaseUrl: "https://gamma-api.polymarket.com",
