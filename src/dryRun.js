@@ -158,8 +158,9 @@ function evaluateSimExit({ pos, modelUp, modelDown, currentMarketPrice, timeLeft
 
 // ── Simulator core ──────────────────────────────────────────────────────────
 
-function createSimulator(csvPath, header, config, label = "bot", configHash = "unknown") {
+function createSimulator(csvPath, header, config, label = "bot", configHash = "unknown", opts = {}) {
   const tradesPath = csvPath.replace(/\.csv$/, "_trades.csv");
+  const disableTradesJournal = !!opts.disableTradesJournal;
 
   let currentSlug = null;
   let lastPriceToBeat = null;
@@ -266,6 +267,7 @@ function createSimulator(csvPath, header, config, label = "bot", configHash = "u
   };
 
   function _logTrade({ exitPrice, exitValue, pnl, roiPct, reason, exitTime, entryFee = 0, exitFee = 0, grossPnl = null }) {
+    if (disableTradesJournal) return;
     _ensureHeader(tradesPath, TRADE_JOURNAL_HEADER, TRADE_JOURNAL_LEGACY_LAYOUTS);
     const durationS = pos.entryTime ? Math.round((exitTime - pos.entryTime) / 1000) : "";
     const btcVsPtbAtEntry = (pos.btcAtEntry != null && pos.ptbAtEntry != null)
@@ -634,7 +636,7 @@ export function createDryRunSimulator15m(csvPath, tradingConfig = {}, opts = {})
     highConvictionEntryMax: tradingConfig.highConvictionEntryMax ?? 0.52,
   };
   const configHash = opts.configHash ?? "unknown";
-  return createSimulator(csvPath, HEADER_15M, config, "15m", configHash);
+  return createSimulator(csvPath, HEADER_15M, config, "15m", configHash, opts);
 }
 
 /**
@@ -670,5 +672,5 @@ export function createDryRunSimulator5m(csvPath, tradingConfig = {}, opts = {}) 
     highConvictionEntryMax: tradingConfig.highConvictionEntryMax ?? 0.52,
   };
   const configHash = opts.configHash ?? "unknown";
-  return createSimulator(csvPath, HEADER_5M, config, "5m", configHash);
+  return createSimulator(csvPath, HEADER_5M, config, "5m", configHash, opts);
 }
