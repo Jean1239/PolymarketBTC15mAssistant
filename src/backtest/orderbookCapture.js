@@ -37,28 +37,32 @@ export function buildLine({ ts, slug, timeLeftMin, up, down }) {
 /**
  * Logger append-only de profundidade de orderbook.
  * @param {object} opts
- * @param {string} [opts.dir="./logs"]       - diretório dos arquivos
- * @param {number} [opts.depthLevels=10]     - níveis capturados por lado
- * @param {number} [opts.retentionDays=90]   - dias de .gz mantidos (Task 5)
- * @param {() => Date} [opts.now]            - injeção de relógio (testes)
+ * @param {string} [opts.dir="./logs"]            - diretório dos arquivos
+ * @param {number} [opts.depthLevels=10]          - níveis capturados por lado
+ * @param {number} [opts.retentionDays=90]        - dias de .gz mantidos (Task 5)
+ * @param {string} [opts.fileBase="orderbook_5m"] - prefixo do arquivo (sem extensão)
+ * @param {() => Date} [opts.now]                 - injeção de relógio (testes)
  */
 export function createOrderbookCapture({
   dir = "./logs",
   depthLevels = 10,
   retentionDays = 90,
+  fileBase = "orderbook_5m",
   now = () => new Date(),
 } = {}) {
-  const activePath = path.join(dir, "orderbook_5m.jsonl");
+  const activePath = path.join(dir, `${fileBase}.jsonl`);
   let lastCombined = null;
   let lastSlug = null;
   let currentDate = null;
+
+  const pruneRegex = new RegExp(`^${fileBase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}_(\\d{4}-\\d{2}-\\d{2})\\.jsonl\\.gz$`);
 
   function pruneOld() {
     const cutoff = now().getTime() - retentionDays * 86_400_000;
     let files;
     try { files = fs.readdirSync(dir); } catch { return; }
     for (const f of files) {
-      const m = /^orderbook_5m_(\d{4}-\d{2}-\d{2})\.jsonl\.gz$/.exec(f);
+      const m = pruneRegex.exec(f);
       if (!m) continue;
       if (new Date(`${m[1]}T00:00:00Z`).getTime() < cutoff) {
         try { fs.unlinkSync(path.join(dir, f)); } catch { /* ignora */ }
@@ -70,7 +74,7 @@ export function createOrderbookCapture({
     if (!fs.existsSync(activePath)) return;
     const raw = fs.readFileSync(activePath);
     if (raw.length > 0) {
-      fs.writeFileSync(path.join(dir, `orderbook_5m_${prevDate}.jsonl.gz`), zlib.gzipSync(raw));
+      fs.writeFileSync(path.join(dir, `${fileBase}_${prevDate}.jsonl.gz`), zlib.gzipSync(raw));
     }
     fs.writeFileSync(activePath, "");
     pruneOld();

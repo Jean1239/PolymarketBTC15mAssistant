@@ -18,6 +18,7 @@
     "smoke:strategy": "node scripts/smokeTestStrategy.js",
     "smoke:bundle": "node scripts/smokeTestAnalysisBundle.js",
     "smoke:orderbook": "node scripts/smokeTestOrderbookCapture.js",
+    "smoke:capture-bot": "node scripts/smokeTestCaptureBot.js",
     "smoke:pipeline": "node scripts/smokeTestPipeline.js",
     "smoke:paths": "node scripts/smokeTestPaths.js",
     "smoke:realtradelog": "node scripts/smokeTestRealTradeLog.js",
