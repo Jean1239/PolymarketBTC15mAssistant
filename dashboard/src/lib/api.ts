@@ -197,8 +197,14 @@ export interface ClearLogsResult {
 }
 
 export const api = {
-  stats: (sinceIso?: string) =>
-    get<StatsResponse>(`/api/stats${sinceIso ? `?since=${encodeURIComponent(sinceIso)}` : ""}`),
+  stats: (sinceIso?: string, strategy15m?: string, strategy5m?: string) => {
+    const qs = new URLSearchParams()
+    if (sinceIso) qs.set("since", sinceIso)
+    if (strategy15m && strategy15m !== "all") qs.set("strategy15m", strategy15m)
+    if (strategy5m && strategy5m !== "all") qs.set("strategy5m", strategy5m)
+    const s = qs.toString()
+    return get<StatsResponse>(`/api/stats${s ? `?${s}` : ""}`)
+  },
   trades15m: () => get<Trade[]>("/api/trades/15m"),
   trades5m: () => get<Trade[]>("/api/trades/5m"),
   strategies15m: () => get<StrategiesResponse>("/api/strategies/15m"),

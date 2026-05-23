@@ -658,6 +658,8 @@ const server = http.createServer(async (req, res) => {
     if (p === "/api/stats") {
       const since = url.searchParams.get("since");
       const sinceMs = since ? Date.parse(since) : null;
+      const strat15 = url.searchParams.get("strategy15m");
+      const strat5 = url.searchParams.get("strategy5m");
       const filterSince = (rows) => {
         if (!sinceMs || !Number.isFinite(sinceMs)) return rows;
         return rows.filter((t) => {
@@ -665,8 +667,12 @@ const server = http.createServer(async (req, res) => {
           return Number.isFinite(ms) && ms >= sinceMs;
         });
       };
-      const t15 = filterSince(coerceTrades(parseCsv(TRADES_FILE["15m"])));
-      const t5 = filterSince(coerceTrades(parseCsv(TRADES_FILE["5m"])));
+      const filterStrategy = (rows, hash) => {
+        if (!hash || hash === "all") return rows;
+        return rows.filter((t) => (t.config_hash ?? "unknown") === hash);
+      };
+      const t15 = filterStrategy(filterSince(coerceTrades(parseCsv(TRADES_FILE["15m"]))), strat15);
+      const t5 = filterStrategy(filterSince(coerceTrades(parseCsv(TRADES_FILE["5m"]))), strat5);
       return json(res, { "15m": computeStats(t15), "5m": computeStats(t5), source: TRADE_SOURCE });
     }
 

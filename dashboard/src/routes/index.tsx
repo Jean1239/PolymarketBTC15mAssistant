@@ -7,10 +7,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { Area, CartesianGrid, ComposedChart, XAxis, YAxis, Bar, BarChart, Cell, Line } from "recharts"
-import { api, type BotStats } from "@/lib/api"
+import { api, type BotStats, type StrategyVersion } from "@/lib/api"
 import { ClearLogsButton } from "@/components/clear-logs-button"
 import { TradeEventsCard } from "@/components/trade-events-card"
 import { useSelectedBot } from "@/lib/selected-bot"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 export const Route = createFileRoute("/")({
   component: OverviewPage,
@@ -194,15 +201,46 @@ function sinceForRange(key: RangeKey): string | undefined {
   }
 }
 
+function StrategySelect({
+  value,
+  onChange,
+  versions,
+}: {
+  value: string
+  onChange: (v: string) => void
+  versions: StrategyVersion[]
+}) {
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger size="sm" className="h-7 text-xs">
+        <SelectValue placeholder="Strategy" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="all">All strategies</SelectItem>
+        {versions.map((v) => (
+          <SelectItem key={v.hash} value={v.hash}>
+            {v.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
 function OverviewPage() {
   const [range, setRange] = useState<RangeKey>("ALL")
+  const [strategy15m, setStrategy15m] = useState<string>("all")
+  const [strategy5m, setStrategy5m] = useState<string>("all")
   const sinceIso = sinceForRange(range)
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["stats", range],
-    queryFn: () => api.stats(sinceIso),
+    queryKey: ["stats", range, strategy15m, strategy5m],
+    queryFn: () => api.stats(sinceIso, strategy15m, strategy5m),
     refetchInterval: 30_000,
   })
+
+  const strategies15mQuery = useQuery({ queryKey: ["strategies", "15m"], queryFn: api.strategies15m })
+  const strategies5mQuery = useQuery({ queryKey: ["strategies", "5m"], queryFn: api.strategies5m })
 
   const { selected, setSelected, visibleBots } = useSelectedBot()
 
@@ -234,18 +272,34 @@ function OverviewPage() {
               {show15 && <TabsTrigger value="15m">15-minute bot</TabsTrigger>}
               {show5 && <TabsTrigger value="5m">5-minute bot</TabsTrigger>}
             </TabsList>
-            <div className="flex items-center gap-1 rounded-md border border-border bg-card p-0.5">
-              {RANGES.map((r) => (
-                <Button
-                  key={r.key}
-                  size="sm"
-                  variant={range === r.key ? "secondary" : "ghost"}
-                  className="h-7 px-2 text-xs"
-                  onClick={() => setRange(r.key)}
-                >
-                  {r.label}
-                </Button>
-              ))}
+            <div className="flex items-center gap-2 flex-wrap">
+              {selected === "15m" && (
+                <StrategySelect
+                  value={strategy15m}
+                  onChange={setStrategy15m}
+                  versions={strategies15mQuery.data?.versions ?? []}
+                />
+              )}
+              {selected === "5m" && (
+                <StrategySelect
+                  value={strategy5m}
+                  onChange={setStrategy5m}
+                  versions={strategies5mQuery.data?.versions ?? []}
+                />
+              )}
+              <div className="flex items-center gap-1 rounded-md border border-border bg-card p-0.5">
+                {RANGES.map((r) => (
+                  <Button
+                    key={r.key}
+                    size="sm"
+                    variant={range === r.key ? "secondary" : "ghost"}
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setRange(r.key)}
+                  >
+                    {r.label}
+                  </Button>
+                ))}
+              </div>
             </div>
           </div>
           {show15 && (
