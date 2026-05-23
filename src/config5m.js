@@ -1,7 +1,14 @@
 import { CONFIG as BASE } from "./config.js";
 
+const _executionMode = (process.env.EXECUTION_MODE ?? "paper").toLowerCase();
+if (_executionMode !== "paper" && _executionMode !== "real") {
+  console.error(`[startup] EXECUTION_MODE inválido: '${_executionMode}'. Use 'paper' ou 'real'.`);
+  process.exit(1);
+}
+
 export const CONFIG = {
   ...BASE,
+  executionMode: _executionMode,
 
   candleWindowMinutes: 5,
 
