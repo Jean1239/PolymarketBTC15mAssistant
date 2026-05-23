@@ -1,152 +1,248 @@
 # Coolify deployment
 
-This directory documents how to deploy the project on [Coolify](https://coolify.io).
-The topology mirrors what `docker-compose.yml` describes, but each service runs
-as its own Coolify "Application" so env vars, restarts and resource limits stay
-isolated.
+Two-environment Coolify deployment for the project:
+
+- **`polymarket-staging`** — single Docker Compose resource, branch `staging`, `EXECUTION_MODE=paper`, capture service OFF.
+- **`polymarket-prod`** — four independent Coolify Applications, branch `main`, `EXECUTION_MODE=real`, capture service ON (own volume).
+
+Webhooks redeploy each project on push to its matched branch. Env vars,
+secrets, volumes, and the admin database are physically isolated per
+project.
 
 ## Topology
 
-| Coolify app    | Source build             | Selector (env)   | Public          | Persistent volume    |
-|----------------|--------------------------|------------------|-----------------|----------------------|
-| `bot-15m`      | `./Dockerfile`           | `BOT_MODE=15m`   | no              | `logs` (`/app/logs`) |
-| `bot-5m`       | `./Dockerfile`           | `BOT_MODE=5m`    | no              | `logs` (`/app/logs`) |
-| `dashboard`    | `./Dockerfile.dashboard` | n/a              | yes (port 3456) | `logs` (`/app/logs`) |
+| Coolify Project       | Git branch | Shape                          | EXECUTION_MODE | Capture           |
+|-----------------------|------------|--------------------------------|----------------|-------------------|
+| `polymarket-staging`  | `staging`  | 1 Docker Compose resource      | `paper`        | OFF (no profile)  |
+| `polymarket-prod`     | `main`     | 4 independent Applications     | `real` (bots)  | ON (own App)      |
 
-Both bots share the same `Dockerfile`. The entrypoint reads the `BOT_MODE`
-env var to decide which script to run (`src/index.js` for 15m,
-`src/index5m.js` for 5m). This sidesteps Coolify's lack of a per-app start
-command override for Dockerfile build packs — the start command lives in the
-image, the env var selects the bot.
+## Prod — four Coolify Applications
 
-The `logs` volume MUST be the same physical storage mounted by all three app
-containers — that is how the dashboard reads the bots' CSVs. In Coolify this is
-done with a "Shared Persistent Storage" entry attached to each of the three
-app definitions, mounted at `/app/logs`.
+All four apps point at the same Git repo (`main`). One Project, four
+Applications.
 
-Auth state (better-auth users + sessions) lives in a SQLite file inside the
-same `logs` volume (`/app/logs/auth.db`). No separate database service is
-needed. The bots do not read or write the auth DB.
+| App         | Build                       | BOT_MODE  | Public | Mounted volume(s)                                  | EXECUTION_MODE |
+|-------------|-----------------------------|-----------|--------|----------------------------------------------------|----------------|
+| `bot-15m`   | `Dockerfile`                | `15m`     | no     | `polymarket-logs-prod` → `/app/logs`               | `real`         |
+| `bot-5m`    | `Dockerfile`                | `5m`      | no     | `polymarket-logs-prod` → `/app/logs`               | `real`         |
+| `capture`   | `Dockerfile`                | `capture` | no     | `polymarket-capture-prod` → `/app/logs` (isolated) | n/a            |
+| `dashboard` | `Dockerfile.dashboard`      | n/a       | yes    | `polymarket-logs-prod` → `/app/logs`               | n/a            |
 
-## One-time setup (per environment)
+- Three Apps (bots + dashboard) share `polymarket-logs-prod` via Coolify
+  Shared Storage. The capture bot has its own volume
+  (`polymarket-capture-prod`) so its high-frequency orderbook dumps never
+  pollute the bots' CSVs or the auth DB.
+- Per-service start/stop is a single button per App in the Coolify UI.
+  Pausing `capture` for weeks does not affect bots; stopping `bot-5m` to
+  investigate drift does not affect `bot-15m`.
+- `auth.db` (better-sqlite3, WAL mode) lives at `/app/logs/auth.db` inside
+  the shared volume. Only the dashboard reads/writes it.
+- Coolify's Application + Dockerfile build pack has no Start Command field;
+  the bot script is selected entirely by `BOT_MODE`. To run a different
+  bot, change the env var and redeploy — no Dockerfile edit needed.
 
-1. **Create the shared persistent volume.** In the project → *Storages* → New
-   "Shared volume" called `polymarket-logs`. Mount path `/app/logs`.
-2. **Create the Applications**, all pointing at the same Git repo:
-    - `bot-15m`  → Dockerfile `Dockerfile`, env `BOT_MODE=15m`
-    - `bot-5m`   → Dockerfile `Dockerfile`, env `BOT_MODE=5m`
-    - `dashboard`→ Dockerfile `Dockerfile.dashboard`
+### One-time setup (prod)
 
-   In each application:
-    - Attach the `polymarket-logs` shared volume at `/app/logs`.
-    - Set the branch (see *Environments* below).
-    - Paste the env vars listed below.
+1. **Create the two Shared Storage volumes** (Project → Storages → New
+   shared volume): `polymarket-logs-prod` and `polymarket-capture-prod`,
+   both mounted at `/app/logs` when attached to apps.
+2. **Create the four Applications**, all pointing at the repo, branch `main`:
+   - `bot-15m`   → Dockerfile `Dockerfile`, env `BOT_MODE=15m`, attach `polymarket-logs-prod`
+   - `bot-5m`    → Dockerfile `Dockerfile`, env `BOT_MODE=5m`,  attach `polymarket-logs-prod`
+   - `capture`   → Dockerfile `Dockerfile`, env `BOT_MODE=capture`, attach `polymarket-capture-prod`
+   - `dashboard` → Dockerfile `Dockerfile.dashboard`, attach `polymarket-logs-prod`, expose port 3456 with a domain
+3. **Paste env vars** (see *Required env vars* below). Put secrets in
+   Coolify "Secrets", not plain env.
+4. **First boot of `dashboard`** runs Drizzle migrations against
+   `/app/logs/auth.db` and seeds the admin user. Watch the logs for
+   `DB migrations applied` and `Admin seed: { created: true, ... }`.
 
-   Coolify's Application + Dockerfile build pack has **no Start Command field**;
-   `Custom Docker Options` only accepts `docker run` flags. The bot script is
-   chosen entirely by the `BOT_MODE` env var. To run a different bot, change
-   the env var and redeploy — no Dockerfile edit needed.
+### Required env vars (prod)
 
-3. **Expose the dashboard.** On the `dashboard` app, set the published port to
-   `3456` and attach a domain. Bots stay internal — never expose them.
-
-4. **First boot.** The dashboard container runs Drizzle migrations against
-   `/app/logs/auth.db` and seeds the admin user automatically before listening.
-   Watch the logs to confirm `DB migrations applied` and
-   `Admin seed: { created: true, ... }` appear.
-
-## Required env vars per application
-
-### `bot-15m` and `bot-5m`
-
-Both bots accept the full set in `.env.example`. The minimum to enable real
-trading:
+Common to both bots (`bot-15m`, `bot-5m`):
 
 ```
-POLYMARKET_LIVE_TRADING=true        # sole gate; default false = paper
+EXECUTION_MODE=real
 POLYMARKET_PRIVATE_KEY=0x...
 POLYMARKET_FUNDER=0x...
-POLYMARKET_SIGNATURE_TYPE=2
+POLYMARKET_SIGNATURE_TYPE=2          # 0=EOA, 1=POLY_PROXY, 2=GnosisSafe, 3=POLY_1271
 POLYMARKET_TRADE_AMOUNT=5
-# Optional: max allowed drift between the sim's decision price and the live
-# orderbook at order-send time (default 0.02 = 2%).
-# TRADE_SLIPPAGE_TOLERANCE_PCT=0.02
+TRADE_SLIPPAGE_TOLERANCE_PCT=0.02
+TRADE_TAKER_BUFFER=0.05
 ```
 
-To keep a bot in paper-trading-only mode, leave `POLYMARKET_LIVE_TRADING`
-unset (or set it to `false`) — the simulator and CSV logging still work even
-if `POLYMARKET_PRIVATE_KEY` is configured. There is no separate `DRY_RUN`
-switch any more.
+Per-App overrides:
 
-The bots are **fully autonomous**: every tick the dry-run simulator emits a
-BUY/HOLD/SELL/WAIT decision, and when live trading is enabled the main loop
-mirrors that decision on the CLOB. There is no manual `[B]`/`[S]` keyboard
-step — Coolify Application containers have no interactive TTY by design, and
-the prior keypress path was removed.
+- `bot-15m`: `BOT_MODE=15m`
+- `bot-5m`:  `BOT_MODE=5m`
+- `capture`: `BOT_MODE=capture` (does NOT need the trading key — capture
+  only reads the orderbook)
 
-### `dashboard`
+To keep a bot in paper mode in prod (e.g. while validating a tweak), set
+`EXECUTION_MODE=paper` on just that App. The simulator and CSV logging
+still run.
+
+`dashboard`:
 
 ```
 BETTER_AUTH_SECRET=<openssl rand -base64 48>
-BETTER_AUTH_URL=https://dashboard.example.com                  # the public URL Coolify exposes
+BETTER_AUTH_URL=https://dashboard.example.com
 AUTH_TRUSTED_ORIGINS=https://dashboard.example.com
 DASHBOARD_ADMIN_EMAIL=you@example.com
-DASHBOARD_ADMIN_PASSWORD=<minimum 12 chars>
+DASHBOARD_ADMIN_PASSWORD=<>=12 chars>
 DASHBOARD_ADMIN_NAME=Admin
-# Optional: which trade journal to render. `sim` (default) reads dryrun_*_trades.csv;
-# set to `real` in the prod project so the UI shows actual executed orders instead.
-# DASHBOARD_TRADE_SOURCE=real
+DASHBOARD_TRADE_SOURCE=real          # prod renders real_*_trades.csv
+# SQLITE_PATH defaults to /app/logs/auth.db — rarely needs to be set
 ```
-
-`SQLITE_PATH` defaults to `/app/logs/auth.db` and rarely needs to be set
-explicitly. Keep it inside the shared volume so the database persists across
-redeploys.
 
 To rotate the admin password without manual SQL: set
-`DASHBOARD_ADMIN_RESET_PASSWORD=true`, change `DASHBOARD_ADMIN_PASSWORD`,
+`DASHBOARD_ADMIN_RESET_PASSWORD=true`, update `DASHBOARD_ADMIN_PASSWORD`,
 redeploy the dashboard, then flip the reset flag back to `false`.
 
-## Environments (prod vs staging)
+## Staging — one Docker Compose resource
 
-Use **two Coolify projects** so env vars, secrets and volumes are physically
-isolated.
+Coolify Project `polymarket-staging`, branch `staging`, resource type
+"Docker Compose", pointing at the repo's `docker-compose.yml`.
 
-| Project   | Git branch | `POLYMARKET_LIVE_TRADING` | Trading key | Logs volume |
-|-----------|------------|---------------------------|-------------|-------------|
-| `prod`    | `main`     | `true`                    | real        | `polymarket-logs-prod` |
-| `staging` | `staging`  | `false` (or unset)        | unset       | `polymarket-logs-staging` |
+Services that come up by default: `bot-15m`, `bot-5m`, `dashboard`. The
+`capture` service is gated by `profiles: ["capture"]` in compose and stays
+OFF in staging (no `COMPOSE_PROFILES=capture` set).
 
-Each project gets its own `auth.db` (via its own logs volume). Never share an
-admin user across environments — staging gets its own `DASHBOARD_ADMIN_*`
-values.
-
-### Staging branch flow
+Project-level env vars (compose inherits — no need to repeat per service):
 
 ```
-git switch staging
-git merge main           # pull production into staging
-# tweak TRADE_* env vars in Coolify staging project to test
-git push origin staging  # Coolify auto-deploys
+EXECUTION_MODE=paper
+BETTER_AUTH_URL=https://staging-dashboard.example.com
+AUTH_TRUSTED_ORIGINS=https://staging-dashboard.example.com
+BETTER_AUTH_SECRET=<openssl rand -base64 48>   # different from prod
+DASHBOARD_ADMIN_EMAIL=staging@example.com
+DASHBOARD_ADMIN_PASSWORD=<>=12 chars>
+DASHBOARD_ADMIN_NAME=Staging Admin
+DASHBOARD_TRADE_SOURCE=sim
+# POLYMARKET_PRIVATE_KEY intentionally unset — paper mode does not need it
 ```
 
-When a staging tweak proves out, port the change back to `main`:
+Volumes: `polymarket_logs` and `polymarket_capture` from compose become
+named volumes scoped to the staging project (no collision with prod).
+`polymarket_capture` stays empty in staging (capture does not run) — zero
+cost.
+
+Domain: attach `staging-dashboard.example.com` to the `dashboard` service
+via the Coolify UI (port 3456).
+
+Redeploy = one button rebuilds the whole stack. Per-service start/stop is
+not a goal in staging — staging is a monolithic validation stack.
+
+## Volumes & log layout
+
+Prod volumes (Coolify Shared Storage):
+
+- `polymarket-logs-prod` → mounted on `bot-15m`, `bot-5m`, `dashboard` at
+  `/app/logs`.
+- `polymarket-capture-prod` → mounted on `capture` only at `/app/logs`.
+
+Staging volumes: the named volumes `polymarket_logs` and
+`polymarket_capture` declared in `docker-compose.yml`.
+
+Layout inside `/app/logs/`:
 
 ```
-git switch main
-# update env defaults / config5m.js as needed
-git push origin main     # Coolify prod project auto-deploys
+sim/
+  signals.csv, signals_5m.csv
+  dryrun_15m.csv, dryrun_5m.csv
+  dryrun_15m_trades.csv, dryrun_5m_trades.csv
+real/
+  ticks_15m.csv, ticks_5m.csv
+  real_15m_trades.csv, real_5m_trades.csv
+archive/                          # role-aware gzip rotation, 14-day retention
+strategy_versions_{15m,5m}.json
+polymarket_market_<slug>.json
+auth.db, auth.db-wal, auth.db-shm # better-sqlite3 WAL
+trade_orders.log, trade_errors.log
 ```
 
-## Operational notes
+`scripts/migrateLogLayout.js` runs in the entrypoint on every container
+boot — idempotent, moves any legacy flat CSVs into `sim/` and `real/`.
 
-- Restarting a single service (e.g. only `bot-5m`) is a one-button action in
-  Coolify — the others keep running.
-- Redeploying `dashboard` re-runs migrations idempotently; the admin seed
-  skips if the user already exists (unless `DASHBOARD_ADMIN_RESET_PASSWORD=true`).
-- The dashboard's `POST /api/logs/clear` endpoint truncates CSVs that the bots
-  are actively writing to. It is now gated by login but still has destructive
-  effects — use with care, especially in `prod`.
-- `GET /api/health` is the only unauthenticated endpoint. Use it as Coolify's
-  health check URL for the dashboard.
-- To back up auth state, copy `/app/logs/auth.db` (and the `auth.db-wal` /
-  `auth.db-shm` sidecar files if present). SQLite WAL mode is enabled.
+Backup targets (worth periodic `cp`): `auth.db*`, `*_trades.csv` (both
+`sim/` and `real/`), `strategy_versions_*.json`. Tick CSVs are disposable
+— rotated on each restart.
+
+## CI/CD & branch flow
+
+| Project              | Branch     | Auto-deploy effect                          |
+|----------------------|------------|---------------------------------------------|
+| `polymarket-staging` | `staging`  | rebuild the compose resource (all services) |
+| `polymarket-prod`    | `main`     | rebuild only the Apps whose context changed |
+
+Recommended flow:
+
+```bash
+# 1. Branch off staging
+git switch staging && git pull
+git switch -c feature/x
+# ...edit code...
+git push origin feature/x
+gh pr create --base staging
+
+# 2. Merge → staging Coolify auto-deploys compose
+gh pr merge --squash --base staging
+
+# 3. Soak in paper for 1-3 days
+#    (dashboard staging shows sim trades because DASHBOARD_TRADE_SOURCE=sim)
+
+# 4. Promote to prod
+git switch main && git pull
+git merge staging --ff-only
+git push origin main           # Coolify prod rebuilds affected Apps
+```
+
+Tweaking an env var in prod (e.g. raising `TRADE_TAKER_BUFFER`): edit on
+the target App in Coolify → Restart. No image rebuild.
+
+Rollback per service in prod: Coolify keeps deploy history per App.
+"Redeploy previous" on `bot-5m` rolls back only `bot-5m`.
+
+Build cache: `Dockerfile` is shared by three Apps (`bot-15m`, `bot-5m`,
+`capture`). A push to `main` triggers three rebuilds; Coolify reuses layer
+cache, so only `COPY src/` and downstream layers re-execute.
+
+## Operations
+
+- **Per-service start/stop (prod):** Coolify App page → Stop / Start.
+- **Soft kill switch (stop trading, keep logging):** set
+  `EXECUTION_MODE=paper` on `bot-15m` and `bot-5m` → Restart. Orders stop,
+  CSVs keep flowing.
+- **Hard kill switch:** Stop the two bot Apps. Dashboard + capture stay up.
+- **Admin password reset:** set `DASHBOARD_ADMIN_RESET_PASSWORD=true`,
+  update `DASHBOARD_ADMIN_PASSWORD`, redeploy the dashboard, flip the
+  reset flag back to `false`.
+- **Log wipe:** `POST /api/logs/clear` (authenticated) archives current
+  CSVs to `logs/archive/<timestamp>/` and truncates. In prod this also
+  zeros out `real_*_trades.csv` — handle with care.
+- **Auto-redeem:** every market slug change with `EXECUTION_MODE=real`
+  invokes `src/trading/redeem.js`. Outcome logged to
+  `/app/logs/trade_orders.log`.
+- **Health check (Coolify):** dashboard uses `GET /api/health` (public).
+  Bots and capture rely on Docker's container-running check.
+- **Live logs:** Coolify UI → App → Logs. Persistent via json-file driver
+  (max 10 MB × 3 files per container).
+
+## Migrating from the previous setup
+
+If a Coolify install still follows the older version of this guide:
+
+1. Remove `POLYMARKET_LIVE_TRADING` from every App — the flag is gone
+   (commit `2525e4f`). `EXECUTION_MODE` is now the sole real-trading gate.
+2. Set `EXECUTION_MODE=real` on `bot-15m` and `bot-5m` in prod (use
+   `paper` if you want a temporary dry run before flipping live).
+3. Create the new `capture` App in the prod project:
+   - Build: `Dockerfile`
+   - Env: `BOT_MODE=capture`
+   - Volume: new Shared Storage `polymarket-capture-prod` → `/app/logs`
+4. First container boot runs `scripts/migrateLogLayout.js`, which moves
+   any legacy flat CSVs into `sim/` and `real/` subdirectories. No
+   manual file shuffling required.
+5. Switch staging to the new "Docker Compose" resource type (delete the
+   old per-App staging setup if it existed). Compose volumes are
+   recreated automatically; staging holds no production-relevant state.
