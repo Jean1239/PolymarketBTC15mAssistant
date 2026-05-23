@@ -15,11 +15,12 @@ function logTrading(msg) {
 export async function initTradingClient(config) {
   if (_cached) return _cached;
 
-  const { privateKey, funder, signatureType, tradeAmount, liveTradingEnabled } = config.trading;
+  const { privateKey, funder, signatureType, tradeAmount } = config.trading;
 
-  // Single gate: real orders require both a private key AND the explicit
-  // POLYMARKET_LIVE_TRADING=true flag. Anything else stays paper-only.
-  if (!privateKey || !liveTradingEnabled) {
+  // Single gate: real orders require a private key. EXECUTION_MODE=real (in
+  // index.js / index5m.js startup) decides whether to call this initializer
+  // at all; this client just refuses to enable when the key is missing.
+  if (!privateKey) {
     _cached = { ...config.trading, client: null, tradingEnabled: false, tradeAmount: 0, wallet: null };
     return _cached;
   }
