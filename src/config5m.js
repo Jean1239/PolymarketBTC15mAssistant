@@ -100,6 +100,12 @@ export const CONFIG = {
     timeDecayMinLossPct: Number(process.env.TRADE_TIME_DECAY_MIN_LOSS_PCT_5M || "15"),
     // High-conviction sizing disabled by default on 5m — higher noise per trade.
     highConvictionMultiplier: Number(process.env.TRADE_HIGH_CONVICTION_MULT_5M || "1"),
+    // Decouple 5m from 15m base default for this filter (2026-05-23). 15m raised
+    // its default 5 → 10 after a 983-trade dry-run; that analysis is 15m-specific
+    // (VWAP/MACD timeframe). Without this override 5m would silently inherit the
+    // 15m value. Lock 5m at 5 to preserve historical behaviour until a 5m-specific
+    // analysis decides otherwise.
+    btcVsPtbMinAbsUsd: Number(process.env.TRADE_BTC_VS_PTB_MIN_USD_5M || "5"),
     // BTC-direction alignment gate: block entries whose side fights the
     // current BTC-vs-priceToBeat sign. Empirical from 548 real trades
     // (2026-05-14 → 2026-05-20):
