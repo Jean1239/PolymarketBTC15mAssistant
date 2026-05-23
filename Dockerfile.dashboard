@@ -21,6 +21,7 @@ COPY package*.json ./
 COPY src/logServer.js ./src/
 COPY src/analysisBundle.js ./src/
 COPY src/fees.js ./src/
+COPY src/paths.js ./src/
 COPY src/auth/ ./src/auth/
 COPY drizzle/ ./drizzle/
 COPY --from=dashboard-builder /build/dist ./dashboard/dist
